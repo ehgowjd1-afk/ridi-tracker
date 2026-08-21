@@ -15,6 +15,14 @@ on:
         description: "리뷰 수집 건너뛰기"
         type: boolean
         default: false
+      max_details:
+        description: "작품 상세 수집 개수 (비우면 기본 600)"
+        type: string
+        default: ""
+      max_reviews:
+        description: "리뷰 수집 작품 수 (비우면 기본 350)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -45,6 +53,8 @@ jobs:
           ARGS=""
           if [ "${{ inputs.quick }}" = "true" ]; then ARGS="$ARGS --quick"; fi
           if [ "${{ inputs.skip_reviews }}" = "true" ]; then ARGS="$ARGS --skip-reviews"; fi
+          if [ -n "${{ inputs.max_details }}" ]; then ARGS="$ARGS --max-details ${{ inputs.max_details }}"; fi
+          if [ -n "${{ inputs.max_reviews }}" ]; then ARGS="$ARGS --max-reviews ${{ inputs.max_reviews }}"; fi
           echo "실행 옵션: $ARGS"
           python scripts/collect.py $ARGS
 
