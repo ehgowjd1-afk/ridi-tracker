@@ -23,8 +23,16 @@ var UI = {
   eventSort: "end",
 };
 
-var PERIOD_ORDER = ["DAILY", "WEEKLY", "MONTHLY", "YEARLY", "STEADY"];
-var PERIOD_LABEL = { DAILY: "일간", WEEKLY: "주간", MONTHLY: "월간", YEARLY: "연간", STEADY: "스테디" };
+// 리디 화면에 쓰인 이름 그대로. 연재물(웹소설·웹툰)은 오늘/주간/월간,
+// 단행본(E북)은 주간/월간/스테디셀러만 존재한다. '연간'은 리디에 없다.
+var PERIOD_ORDER = ["DAILY", "WEEKLY", "MONTHLY", "STEADY"];
+var PERIOD_LABEL = {
+  DAILY: "오늘의 베스트",
+  WEEKLY: "주간 베스트",
+  MONTHLY: "월간 베스트",
+  STEADY: "스테디셀러"
+};
+function periodLabel(p) { return PERIOD_LABEL[p] || p; }
 
 // ────────────────────────────────────────── 잔심부름
 function $(s, r) { return (r || document).querySelector(s); }
@@ -214,7 +222,7 @@ function fillPeriods() {
   var avail = PERIOD_ORDER.filter(function (p) { return t.periods.indexOf(p) >= 0; });
   if (avail.indexOf(UI.period) < 0) UI.period = avail[0];
   avail.forEach(function (p) {
-    var b = el("button", UI.period === p ? "on" : "", PERIOD_LABEL[p]);
+    var b = el("button", UI.period === p ? "on" : "", periodLabel(p));
     b.dataset.p = p;
     box.appendChild(b);
   });
@@ -245,7 +253,7 @@ function drawRank() {
     list.appendChild(bookRow(id, b, i + 1, ch));
     shown++;
   });
-  $("#rankHead").innerHTML = "<b>" + table.name + "</b> · " + PERIOD_LABEL[table.period]
+  $("#rankHead").innerHTML = "<b>" + table.name + "</b> · " + periodLabel(table.period)
     + " · " + shown + "위까지"
     + (ch.has_prev ? " · " + D.latest.prev_date + " 대비 변동 표시" : " · 첫 수집이라 변동 없음");
   if (!shown) list.appendChild(el("li", "empty", "표시할 작품이 없습니다."));
@@ -308,7 +316,7 @@ function setupMove() {
     Object.keys(D.latest.rankings).forEach(function (key) {
       var t = D.latest.rankings[key];
       if (t.is_sub || t.section !== sec) return;
-      grp.appendChild(new Option(t.name + " · " + PERIOD_LABEL[t.period], key));
+      grp.appendChild(new Option(t.name + " · " + periodLabel(t.period), key));
     });
     if (grp.children.length) sel.appendChild(grp);
   });
@@ -332,7 +340,7 @@ function drawMove() {
 
   if (!table || !ch) { $("#moveHead").textContent = ""; return; }
   if (!ch.has_prev) {
-    $("#moveHead").innerHTML = "<b>" + table.name + "</b> · " + PERIOD_LABEL[table.period];
+    $("#moveHead").innerHTML = "<b>" + table.name + "</b> · " + periodLabel(table.period);
     list.appendChild(el("li", "empty", "비교할 이전 기록이 없습니다.\n내일부터 변동이 표시됩니다."));
     return;
   }
@@ -353,7 +361,7 @@ function drawMove() {
     rows = (ch.out || []).map(function (id) { return { id: id, rank: null }; });
   }
 
-  $("#moveHead").innerHTML = "<b>" + table.name + "</b> · " + PERIOD_LABEL[table.period]
+  $("#moveHead").innerHTML = "<b>" + table.name + "</b> · " + periodLabel(table.period)
     + " · " + label + " " + rows.length + "건 (" + D.latest.prev_date + " 대비)";
 
   var shown = 0;
@@ -696,7 +704,7 @@ function rankTrendCard(id, months) {
   }
 
   avail.forEach(function (item) {
-    var b = el("button", "", PERIOD_LABEL[item.period]);
+    var b = el("button", "", periodLabel(item.period));
     b.dataset.p = item.period;
     b.addEventListener("click", function () { show(item); });
     seg.appendChild(b);
@@ -919,7 +927,7 @@ function exportBook(id, b, detail, months) {
 
   var header = ["날짜"].concat(keyList.map(function (k) {
     var t = D.latest.rankings[k];
-    return (t ? t.name : k.split("-")[0]) + " " + PERIOD_LABEL[k.split("-")[1]];
+    return (t ? t.name : k.split("-")[0]) + " " + periodLabel(k.split("-")[1]);
   })).concat(["평균 별점"]);
 
   var rows = [

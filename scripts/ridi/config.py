@@ -21,7 +21,7 @@ MAX_REVIEW_FETCHES_PER_RUN = 350
 REVIEWS_PER_BOOK = 50
 
 # 전체 소요 시간 어림 (요청 간격 2초 기준)
-#   랭킹 159 + 이벤트 22 + 상세 600 + 리뷰 350~700  ≈  1,150~1,500회  ≈  40~50분
+#   랭킹 137 + 이벤트 22 + 상세 600 + 리뷰 350~700  ≈  1,110~1,460회  ≈  37~49분
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -36,15 +36,24 @@ EVENTS_URL = f"{API_BASE}/v2/events"
 GRAPHQL_URL = f"{API_BASE}/graphql"
 
 # ---------------------------------------------------------------- 랭킹 기간
-# 리디가 제공하는 5종. 전체 랭킹은 5종 전부, 세부 장르는 일간·주간만 모읍니다.
-PERIODS_MAIN = ["DAILY", "WEEKLY", "MONTHLY", "YEARLY", "STEADY"]
-PERIODS_SUB = ["DAILY", "WEEKLY"]
+# 리디는 연재물과 단행본에 서로 다른 기준을 씁니다. 리디 화면 그대로 따릅니다.
+#
+#   연재물(웹소설·웹툰)  : 오늘의 베스트 · 주간 베스트 · 월간 베스트
+#   단행본(E북·만화 e북) : 주간 베스트 · 월간 베스트 · 스테디셀러
+#
+# ⚠️ 'YEARLY(연간)'는 쓰지 않습니다. 리디 화면 어디에도 없고,
+#    API에 요청하면 단행본의 경우 주간 순위를 그대로 돌려줍니다(30/30 동일).
+#    즉 연간 데이터가 아니라 가짜입니다. 되살리지 마세요.
+PERIODS_SERIAL = ["DAILY", "WEEKLY", "MONTHLY"]
+PERIODS_BOOK = ["WEEKLY", "MONTHLY", "STEADY"]
+
+# 세부 장르는 요청을 아끼려고 앞의 두 가지만 모읍니다.
+SUB_PERIOD_COUNT = 2
 
 PERIOD_LABELS = {
-    "DAILY": "일간",
-    "WEEKLY": "주간",
-    "MONTHLY": "월간",
-    "YEARLY": "연간",
+    "DAILY": "오늘의 베스트",
+    "WEEKLY": "주간 베스트",
+    "MONTHLY": "월간 베스트",
     "STEADY": "스테디셀러",
 }
 
@@ -53,9 +62,10 @@ PERIOD_LABELS = {
 # 각 항목은 (카테고리ID, 이름, [하위 (ID, 이름) ...])
 
 CATEGORY_TREE = {
-    # 웹소설 (연재)
+    # 웹소설 (연재물)
     "webnovel": {
         "label": "웹소설",
+        "kind": "serial",
         "groups": [
             (1650, "로맨스 웹소설", [
                 (1651, "현대물"),
@@ -82,6 +92,7 @@ CATEGORY_TREE = {
     # E북 단행본
     "ebook": {
         "label": "E북 단행본",
+        "kind": "book",
         "groups": [
             (1700, "로맨스 e북", [
                 (1701, "현대물"),
@@ -122,9 +133,10 @@ CATEGORY_TREE = {
             ]),
         ],
     },
-    # 웹툰
+    # 웹툰 (연재물)
     "webtoon": {
         "label": "웹툰",
+        "kind": "serial",
         "groups": [
             (1600, "웹툰", [
                 (1612, "로판"),
@@ -148,11 +160,18 @@ CATEGORY_TREE = {
 }
 
 
+def periods_for(section):
+    """그 분류에서 리디가 실제로 제공하는 기준을 돌려준다."""
+    kind = CATEGORY_TREE[section].get("kind", "serial")
+    return PERIODS_SERIAL if kind == "serial" else PERIODS_BOOK
+
+
 def iter_ranking_targets():
-    """수집할 (랭킹키, 이름, 카테고리ID, 기간, 섹션, 부모이름, 세부장르인지) 목록을 만든다."""
+    """수집할 랭킹 목록을 만든다. 기간은 분류별로 리디 화면과 똑같이 맞춘다."""
     for section, info in CATEGORY_TREE.items():
+        periods = periods_for(section)
         for cat_id, cat_name, subs in info["groups"]:
-            for period in PERIODS_MAIN:
+            for period in periods:
                 yield {
                     "key": f"{cat_id}-{period}",
                     "section": section,
@@ -163,7 +182,7 @@ def iter_ranking_targets():
                     "is_sub": False,
                 }
             for sub_id, sub_name in subs:
-                for period in PERIODS_SUB:
+                for period in periods[:SUB_PERIOD_COUNT]:
                     yield {
                         "key": f"{sub_id}-{period}",
                         "section": section,
