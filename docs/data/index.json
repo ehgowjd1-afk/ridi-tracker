@@ -1,0 +1,35 @@
+{
+ "dates": [
+  "2026-08-22"
+ ],
+ "months": [
+  "2026-08"
+ ],
+ "updated_at": "2026-08-22T06:28:36+09:00",
+ "latest_date": "2026-08-22",
+ "book_count": 11242,
+ "ranking_count": 159,
+ "event_count": 573,
+ "sections": {
+  "webnovel": "웹소설",
+  "ebook": "E북 단행본",
+  "webtoon": "웹툰"
+ },
+ "periods": {
+  "DAILY": "일간",
+  "WEEKLY": "주간",
+  "MONTHLY": "월간",
+  "YEARLY": "연간",
+  "STEADY": "스테디셀러"
+ },
+ "last_run": {
+  "requests": 470,
+  "seconds": 940.6,
+  "failures": [],
+  "reviews": {
+   "books": 60,
+   "added": 2718
+  },
+  "details": 118
+ }
+}
