@@ -52,20 +52,42 @@ class Store:
         return p
 
     # ------------------------------------------------------------ 작품 카탈로그
-    LIGHT_FIELDS = [
-        "id", "series_id", "title", "authors", "publisher", "cover", "url",
-        "rating", "rating_count", "categories", "genre",
-        "is_completed", "total_episodes", "unit",
-        "is_exclusive", "is_original", "is_only", "is_pre_exclusive",
-        "adults_only", "price_all", "discount_rate", "badges",
-        "published_at",
-    ]
+    # 목록 화면에 필요한 최소 정보만, 짧은 이름으로 담는다.
+    # (작품이 만 개를 넘어가면 이름을 길게 쓰는 것만으로 파일이 몇 배가 된다)
+    #   t 제목 / a 작가 / r 별점 / rc 별점참여수 / ep 회차수 / u 화·권 단위
+    #   c 완결 / x 독점 / ad 성인 / pb 출판사 / p 가격 / dc 할인율 / s 표지용ID
+    # 표지 주소와 작품 주소는 ID로 만들 수 있으므로 저장하지 않는다.
+    @staticmethod
+    def compact(b):
+        out = {
+            "t": b.get("title"),
+            "a": b.get("authors") or [],
+            "r": b.get("rating"),
+            "rc": b.get("rating_count"),
+            "ep": b.get("total_episodes"),
+            "u": b.get("unit"),
+        }
+        if b.get("is_completed"):
+            out["c"] = 1
+        if b.get("is_exclusive"):
+            out["x"] = 1
+        if b.get("adults_only"):
+            out["ad"] = 1
+        if b.get("publisher"):
+            out["pb"] = b["publisher"]
+        if b.get("price_all") is not None:
+            out["p"] = b["price_all"]
+        if b.get("discount_rate"):
+            out["dc"] = b["discount_rate"]
+        if b.get("series_id") and b["series_id"] != b.get("id"):
+            out["s"] = b["series_id"]
+        return out
 
     def update_catalog(self, books):
         """작품 카탈로그를 갱신한다 (있으면 최신값으로 교체, 없으면 추가)."""
         catalog = self.read("books.json", default={}) or {}
         for b in books.values():
-            catalog[b["id"]] = {k: b.get(k) for k in self.LIGHT_FIELDS}
+            catalog[b["id"]] = self.compact(b)
         self.write(catalog, "books.json")
         return len(catalog)
 

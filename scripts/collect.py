@@ -345,12 +345,18 @@ def main():
     rating_map = {bid: b["rating"] for bid, b in books.items()}
     store.update_history(date, rank_map, rating_map)
 
+    # 사이트가 제일 먼저 읽는 파일. 오늘 순위에 오른 작품 정보를 같이 담아두면
+    # 전체 카탈로그(books.json)를 받지 않아도 화면이 바로 그려진다.
+    ranked_ids = set()
+    for table in tables.values():
+        ranked_ids.update(table["ids"])
     store.write({
         "date": date,
         "prev_date": prev_date,
         "updated_at": now_kst(),
         "rankings": tables,
         "changes": changes,
+        "books": {bid: Store.compact(books[bid]) for bid in ranked_ids if bid in books},
         "event_count": len(all_events),
     }, "latest.json")
 
