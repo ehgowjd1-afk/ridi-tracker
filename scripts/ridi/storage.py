@@ -87,8 +87,12 @@ class Store:
             "review_cell_id": existing.get("review_cell_id"),
             "detail_fetched_at": existing.get("detail_fetched_at"),
         }
-        # 랭킹 API의 로맨스 가이드에서 뽑은 키워드도 합쳐준다
-        guide_kw = book.get("keywords_from_guide") or []
+        # 랭킹 API의 로맨스 가이드에서 뽑은 키워드도 합쳐준다 (같은 기준으로 걸러서)
+        from .details import split_keywords
+        exclude = [a.get("name") for a in (book.get("authors_full") or [])]
+        exclude += (book.get("authors") or []) + [book.get("publisher")]
+        guide_kw, guide_meta = split_keywords(
+            book.get("keywords_from_guide") or [], exclude=exclude)
         if detail and not detail.get("error"):
             payload["keywords"] = detail.get("keywords") or payload["keywords"]
             payload["tags"] = detail.get("tags") or payload["tags"]
@@ -103,6 +107,12 @@ class Store:
                 if k not in merged:
                     merged.append(k)
             payload["tags"] = merged
+        if guide_meta:
+            merged = list(payload["meta_tags"])
+            for k in guide_meta:
+                if k not in merged:
+                    merged.append(k)
+            payload["meta_tags"] = merged
         self.write(payload, "books", f"{book['id']}.json")
 
     # ------------------------------------------------------------ 진행 상황 메모

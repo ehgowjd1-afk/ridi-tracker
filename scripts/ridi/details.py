@@ -68,18 +68,53 @@ def fetch_detail(client, book_id):
     return result
 
 
-def split_keywords(keywords):
-    """키워드 목록에서 의미별로 나눈다 (화면에서 쓰기 좋게).
+# 작품의 '내용'을 설명하지 않는 태그들 — 따로 빼둔다.
+# (그대로 두면 나중에 키워드 분석할 때 "별점1000개이상"이 상위 키워드로 잡힌다)
+_FORMAT_TAGS = {
+    "ebook", "전자책", "웹툰", "웹소설", "만화", "단행본", "라이트노벨",
+    "연재", "연재중", "완결", "로맨스 웹소설", "로판 웹소설", "판타지 웹소설",
+    "BL 웹소설", "로맨스 e북", "로판 e북", "판타지 e북", "BL 소설 e북",
+}
+_SPECIAL_TAGS = {"원작소설有", "원작웹툰有", "독점", "선공개", "리디오리지널"}
+_STAT_PATTERNS = [
+    re.compile(r"^별점\s*[\d,]+개?\s*이상$"),
+    re.compile(r"^리뷰\s*[\d,]+개?\s*이상$"),
+    re.compile(r"^평점\s*[\d.]+점?\s*이상$"),
+    re.compile(r"^조회수?\s*[\d,]+.*이상$"),
+    re.compile(r"^[\d,]+\s*(화|권)\s*이상$"),
+    re.compile(r"^기다리면무료"),
+    re.compile(r"^무료\s*[\d,]+\s*(화|권)"),
+]
 
-    리디는 태그 배열에 형식·연재상태·CP사·작가명까지 섞어 넣는다.
+
+def split_keywords(keywords, exclude=None):
+    """키워드를 '작품 내용 태그'와 '그 외 표시'로 나눈다.
+
+    exclude: 작가명·출판사명처럼 태그로 볼 수 없는 이름 모음.
+             리디는 태그 배열 끝에 작가·CP사 이름을 같이 넣어둔다.
     """
-    formats = {"ebook", "전자책", "웹툰", "웹소설", "만화", "연재", "완결", "단행본"}
-    special = {"기다리면무료", "원작소설有", "원작웹툰有", "독점", "선공개"}
+    skip = {s.strip() for s in (exclude or []) if s and s.strip()}
 
     tags, meta = [], []
-    for k in keywords:
-        if k in formats or k in special:
-            meta.append(k)
-        else:
+    seen_tag, seen_meta = set(), set()
+
+    for raw in keywords:
+        k = (raw or "").strip()
+        if not k:
+            continue
+        is_meta = (
+            k in _FORMAT_TAGS
+            or k in _SPECIAL_TAGS
+            or any(p.match(k) for p in _STAT_PATTERNS)
+        )
+        if is_meta:
+            if k not in seen_meta:
+                seen_meta.add(k)
+                meta.append(k)
+        elif k in skip:
+            continue          # 작가·출판사 이름은 버린다 (이미 따로 갖고 있음)
+        elif k not in seen_tag:
+            seen_tag.add(k)
             tags.append(k)
+
     return tags, meta

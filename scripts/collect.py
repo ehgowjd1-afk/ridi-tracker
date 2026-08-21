@@ -105,6 +105,17 @@ def compute_changes(today_tables, prev_tables):
 
 
 # ---------------------------------------------------------------- 3. 상세·리뷰 대상 고르기
+def name_exclusions(book):
+    """태그에서 걸러낼 이름들 (작가·번역가·출판사)."""
+    if not book:
+        return []
+    names = [a.get("name") for a in (book.get("authors_full") or [])]
+    names += book.get("authors") or []
+    if book.get("publisher"):
+        names.append(book["publisher"])
+    return [n for n in names if n]
+
+
 def best_ranks(tables, only_main=True, only_daily=False):
     """작품별로 오늘 기록한 가장 높은 순위를 구한다."""
     best = {}
@@ -236,7 +247,8 @@ def main():
             if d.get("error"):
                 print(f"  [{i}/{len(picked)}] {bid} 실패 — {d['error']}")
             else:
-                tags, meta_tags = details.split_keywords(d.get("keywords") or [])
+                tags, meta_tags = details.split_keywords(
+                    d.get("keywords") or [], exclude=name_exclusions(books.get(bid)))
                 d["tags"], d["meta_tags"] = tags, meta_tags
                 meta["details"][bid] = date
                 title = books.get(bid, {}).get("title", bid)[:24]
@@ -260,7 +272,8 @@ def main():
                 cell_id = d.get("review_cell_id")
                 if not d.get("error"):
                     d["fetched_at"] = now_kst()
-                    tags, meta_tags = details.split_keywords(d.get("keywords") or [])
+                    tags, meta_tags = details.split_keywords(
+                        d.get("keywords") or [], exclude=name_exclusions(books.get(bid)))
                     d["tags"], d["meta_tags"] = tags, meta_tags
                     detail_map.setdefault(bid, d)
                     meta["details"][bid] = date
