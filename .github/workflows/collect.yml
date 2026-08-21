@@ -1,0 +1,81 @@
+name: 리디 랭킹 수집
+
+on:
+  schedule:
+    # 매일 한국시간 오전 9시 (UTC 0시)
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      quick:
+        description: "빠른 확인 모드 (랭킹 6개만 수집)"
+        type: boolean
+        default: false
+      skip_reviews:
+        description: "리뷰 수집 건너뛰기"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 이 수집기는 파이썬 기본 기능만 쓰므로 따로 설치할 것이 없습니다.
+
+      - name: 수집 실행
+        run: |
+          ARGS=""
+          if [ "${{ inputs.quick }}" = "true" ]; then ARGS="$ARGS --quick"; fi
+          if [ "${{ inputs.skip_reviews }}" = "true" ]; then ARGS="$ARGS --skip-reviews"; fi
+          echo "실행 옵션: $ARGS"
+          python scripts/collect.py $ARGS
+
+      - name: 결과 요약 보기
+        if: always()
+        run: |
+          echo "### 수집 결과" >> $GITHUB_STEP_SUMMARY
+          if [ -f docs/data/index.json ]; then
+            python - <<'PY' >> $GITHUB_STEP_SUMMARY
+          import json
+          d = json.load(open("docs/data/index.json", encoding="utf-8"))
+          run = d.get("last_run", {})
+          print(f"- 기준일: **{d.get('latest_date')}**")
+          print(f"- 작품 {d.get('book_count')}종 / 랭킹 {d.get('ranking_count')}개 / 이벤트 {d.get('event_count')}건")
+          print(f"- 요청 {run.get('requests')}회, {run.get('seconds')}초 소요")
+          fails = run.get("failures") or []
+          print(f"- 실패한 랭킹: {len(fails)}개")
+          for f in fails[:10]:
+              print(f"  - {f.get('name')}: {f.get('error')}")
+          PY
+          else
+            echo "- 데이터 파일이 만들어지지 않았습니다." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 결과 저장(커밋)
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+          else
+            DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+            git commit -m "데이터 수집: $DATE"
+            git push
+          fi
