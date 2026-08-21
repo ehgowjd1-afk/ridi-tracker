@@ -542,7 +542,10 @@ function drawBook(id, detail, reviewData, months) {
 
   // ── 태그 ──
   var tags = (detail && detail.tags) || [];
-  var metaTags = (detail && detail.meta_tags) || [];
+  // "별점1000개이상" 같은 통계성 표시는 이미 위에 별점으로 나오므로 화면에서는 뺀다
+  var metaTags = ((detail && detail.meta_tags) || []).filter(function (t) {
+    return !/^(별점|리뷰|평점|조회)/.test(t);
+  });
   if (tags.length || metaTags.length) {
     var tc = el("div", "card");
     tc.appendChild(el("h3", "", "키워드 · 태그"));
@@ -775,7 +778,10 @@ var STOPWORDS = ("그리고 그래서 하지만 그런데 그러나 정말 진�
   "생각 느낌 부분 정도 때문 그냥 역시 이제 아직 지금 나중 처음 마지막 다음 이번 저희 우리 " +
   "제가 저는 나는 근데 인데 라고 라는 하는 되는 있는 없는 같은 많은 좋은 보고 읽고 " +
   "합니다 했어요 해요 이런 저런 어떤 무슨 진심 완전히 굉장히 엄청 그램 편이 작가 작가님 " +
-  "감사 감사합니다 기대 다음화 리디 소장 대여 결제 무료 최고 존잼 잘봤 잘보 재밌 재미"
+  "감사 감사합니다 기대 다음화 리디 소장 대여 결제 무료 최고 존잼 잘봤 잘보 재밌 재미 " +
+  "이렇게 그렇게 저렇게 어떻게 않고 않은 않아 않네 읽었 봤어 봤네 좋아 좋네 제일 시작 " +
+  "정주행 다음편 담편 계속 얼른 빨리 이건 그건 진짜로 완전 그저 여기 아마 혹시 " +
+  "작가님 님의 작품이 소설이 웹툰이 이번화 회차 연재 결말 초반 후반 중반"
   ).split(/\s+/).filter(Boolean);
 var STOPSET = {};
 STOPWORDS.forEach(function (w) { STOPSET[w] = 1; });
@@ -793,7 +799,8 @@ function reviewKeywords(reviews, topN) {
       w = w.replace(/(이었|였|하는|해서|하고|한테|에게|에서|으로|까지|부터|이라|라서|네요|어요|아요|습니다|입니다|는데|지만|면서|다가|이다|하다)$/, "");
       w = w.replace(/(은|는|이|가|을|를|의|에|도|만|과|와|랑|께|요)$/, "");
       if (w.length < 2 || STOPSET[w]) return;
-      if (/^\d+$/.test(w)) return;
+      if (/^\d/.test(w)) return;                       // "200회" 같은 숫자 표현 제외
+      if (/(작가님|작가)$/.test(w) && w.length > 3) return;
       if (seen[w]) return;            // 한 리뷰에서 같은 단어는 한 번만
       seen[w] = 1;
       freq[w] = (freq[w] || 0) + 1;
