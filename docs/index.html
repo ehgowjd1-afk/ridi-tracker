@@ -2,29 +2,98 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>리디 트래커</title>
-<style>
-  :root { color-scheme: light dark; }
-  body {
-    margin: 0; min-height: 100vh; display: grid; place-items: center;
-    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-    background: #fafafa; color: #222;
-  }
-  @media (prefers-color-scheme: dark) { body { background: #16181d; color: #e8e8ea; } }
-  .box { text-align: center; padding: 2rem; max-width: 30rem; }
-  h1 { font-size: 1.4rem; margin: 0 0 .6rem; }
-  p { margin: .4rem 0; opacity: .75; line-height: 1.6; font-size: .95rem; }
-  code { background: rgba(128,128,128,.18); padding: .1rem .35rem; border-radius: 4px; }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="box">
-    <h1>리디 트래커</h1>
-    <p>데이터를 모으는 중입니다.</p>
-    <p>첫 수집이 끝나면 이 자리에 순위·리뷰·이벤트 화면이 들어갑니다.</p>
-    <p><code>docs/data/</code>에 수집 결과가 쌓입니다.</p>
+
+<header class="top">
+  <div class="wrap topbar">
+    <h1 class="logo">리디 트래커</h1>
+    <div class="topmeta">
+      <span id="asof">불러오는 중…</span>
+      <button id="themeBtn" class="ghost" title="밝게/어둡게">◐</button>
+    </div>
   </div>
+  <nav class="wrap tabs" id="mainTabs">
+    <button data-view="rank" class="on">랭킹</button>
+    <button data-view="move">변동</button>
+    <button data-view="event">이벤트</button>
+    <button data-view="search">검색</button>
+  </nav>
+</header>
+
+<main class="wrap" id="main">
+
+  <!-- ── 랭킹 ─────────────────────────────────────────── -->
+  <section id="view-rank" class="view">
+    <div class="controls">
+      <div class="seg" id="secPick"></div>
+      <div class="row">
+        <select id="groupPick" aria-label="장르"></select>
+        <select id="subPick" aria-label="세부 장르"></select>
+      </div>
+      <div class="seg small" id="periodPick"></div>
+      <label class="chk"><input type="checkbox" id="hideAdult"> 성인 작품 숨기기</label>
+    </div>
+    <div id="rankHead" class="listhead"></div>
+    <ol id="rankList" class="booklist"></ol>
+  </section>
+
+  <!-- ── 변동 ─────────────────────────────────────────── -->
+  <section id="view-move" class="view hidden">
+    <div class="controls">
+      <div class="row">
+        <select id="movePick" aria-label="랭킹 선택"></select>
+      </div>
+      <div class="seg small" id="moveKind">
+        <button data-kind="rise" class="on">최고 급상승</button>
+        <button data-kind="new">신규 진입</button>
+        <button data-kind="out">순위권 이탈</button>
+      </div>
+    </div>
+    <div id="moveHead" class="listhead"></div>
+    <ol id="moveList" class="booklist"></ol>
+  </section>
+
+  <!-- ── 이벤트 ───────────────────────────────────────── -->
+  <section id="view-event" class="view hidden">
+    <div class="controls">
+      <input type="search" id="eventQ" placeholder="이벤트 제목 검색">
+      <div class="seg small" id="eventSort">
+        <button data-sort="end" class="on">종료 임박순</button>
+        <button data-sort="start">최근 시작순</button>
+      </div>
+    </div>
+    <div id="eventHead" class="listhead"></div>
+    <div id="eventList" class="eventlist"></div>
+  </section>
+
+  <!-- ── 검색 ─────────────────────────────────────────── -->
+  <section id="view-search" class="view hidden">
+    <div class="controls">
+      <input type="search" id="searchQ" placeholder="작품 제목 · 작가 이름으로 검색">
+      <p class="hint" id="searchHint">모아둔 데이터 전체에서 찾습니다.</p>
+    </div>
+    <ol id="searchList" class="booklist"></ol>
+  </section>
+
+</main>
+
+<!-- ── 작품 상세 ──────────────────────────────────────── -->
+<div id="sheet" class="sheet hidden" role="dialog" aria-modal="true">
+  <div class="sheetbg" data-close></div>
+  <div class="sheetbox">
+    <button class="sheetclose" data-close aria-label="닫기">✕</button>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="xlsx.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
