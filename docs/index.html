@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -19,8 +19,9 @@
       <button id="themeBtn" class="ghost" title="밝게/어둡게">◐</button>
     </div>
   </div>
+  <!-- 웹소설·E북·웹툰 탭은 데이터를 읽은 뒤 app.js가 앞쪽에 만들어 넣습니다.
+       세 가지는 리디에서 순위를 매기는 기준 자체가 다르므로 섞지 않습니다. -->
   <nav class="wrap tabs" id="mainTabs">
-    <button data-view="rank" class="on">랭킹</button>
     <button data-view="move">변동</button>
     <button data-view="event">이벤트</button>
     <button data-view="search">검색</button>
@@ -32,7 +33,6 @@
   <!-- ── 랭킹 ─────────────────────────────────────────── -->
   <section id="view-rank" class="view">
     <div class="controls">
-      <div class="seg" id="secPick"></div>
       <div class="row">
         <select id="groupPick" aria-label="장르"></select>
         <select id="subPick" aria-label="세부 장르"></select>
@@ -95,7 +95,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="xlsx.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="xlsx.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

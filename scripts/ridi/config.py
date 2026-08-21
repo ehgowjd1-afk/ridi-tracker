@@ -12,11 +12,16 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_SEC = 5.0
 
 # 하루에 새로 열어볼 작품 상세페이지 수 상한 (태그·이벤트 수집용)
-MAX_DETAIL_FETCHES_PER_RUN = 100
+# 600건이면 전체 약 11,000종을 3주 안에 한 바퀴 돈다.
+MAX_DETAIL_FETCHES_PER_RUN = 600
 # 하루에 리뷰를 새로 긁어올 작품 수 상한
-MAX_REVIEW_FETCHES_PER_RUN = 60
-# 작품 하나당 가져올 리뷰 최대 건수
+# 리뷰 대상은 '일간 전체 랭킹에 든 작품'(약 2,200종)이라 350이면 일주일에 한 바퀴.
+MAX_REVIEW_FETCHES_PER_RUN = 350
+# 작품 하나당 가져올 리뷰 최대 건수 (한 번의 요청으로 받아온다)
 REVIEWS_PER_BOOK = 50
+
+# 전체 소요 시간 어림 (요청 간격 2초 기준)
+#   랭킹 159 + 이벤트 22 + 상세 600 + 리뷰 350~700  ≈  1,150~1,500회  ≈  40~50분
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

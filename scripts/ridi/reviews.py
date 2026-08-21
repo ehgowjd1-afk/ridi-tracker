@@ -41,8 +41,11 @@ query BookDetailHomeReviewsPagination($id: UUID!, $context: BookDetailHomeReview
 """
 
 
-def fetch_reviews(client, book_id, review_cell_id, max_reviews=None, page_size=20):
-    """한 작품의 리뷰를 최신순으로 가져온다."""
+def fetch_reviews(client, book_id, review_cell_id, max_reviews=None, page_size=50):
+    """한 작품의 리뷰를 최신순으로 가져온다.
+
+    한 번에 최대 100건까지 받을 수 있어서, 기본값 50이면 요청 한 번으로 끝난다.
+    """
     if not review_cell_id:
         return []
     limit_total = max_reviews or config.REVIEWS_PER_BOOK

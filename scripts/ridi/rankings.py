@@ -8,7 +8,14 @@ from . import config
 
 
 def fetch_ranking(client, category_id, period, limit=200):
-    """카테고리 하나의 랭킹 200위를 가져온다."""
+    """카테고리 하나의 랭킹 200위를 가져온다.
+
+    ⚠️ 중요: 리디 랭킹 페이지에는 1위 위쪽에 번호 없는 추천작이 하나 붙는다
+    (화면에 별처럼 표시되는 광고성 자리). 이건 순위가 아니다.
+    API는 그것을 data.recommended_bestseller 라는 별도 칸에 담아 주므로,
+    여기서는 data.items 만 읽어서 순위가 한 칸씩 밀리지 않게 한다.
+    recommended_bestseller 를 items 에 합치지 말 것.
+    """
     data = client.get_json(config.BESTSELLER_URL, {
         "category_includes": category_id,
         "limit": limit,

@@ -15,7 +15,8 @@ var D = {
 };
 
 var UI = {
-  view: "rank",
+  // view 는 "webnovel"·"ebook"·"webtoon"(각각 랭킹 화면) 또는 "move"·"event"·"search"
+  view: null,
   section: null, group: null, sub: "", period: "DAILY",
   hideAdult: false,
   moveKey: null, moveKind: "rise",
@@ -106,21 +107,42 @@ function buildTree() {
 }
 
 // ────────────────────────────────────────── 탭
+function isRankView(v) { return !!D.tree[v]; }
+
 function setupTabs() {
-  $("#mainTabs").addEventListener("click", function (e) {
+  var bar = $("#mainTabs");
+  // 웹소설 / E북 단행본 / 웹툰 — 순위 기준이 서로 다르므로 각각 독립 탭으로
+  Object.keys(D.tree).reverse().forEach(function (sec) {
+    var b = el("button", "", D.tree[sec].label);
+    b.dataset.view = sec;
+    bar.insertBefore(b, bar.firstChild);
+  });
+
+  bar.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-view]");
     if (!b) return;
     UI.view = b.dataset.view;
-    Array.prototype.forEach.call(this.children, function (x) { x.classList.toggle("on", x === b); });
+    if (isRankView(UI.view) && UI.section !== UI.view) {
+      UI.section = UI.view; UI.group = null; UI.sub = "";
+      fillGroups();
+    }
     render();
   });
+
+  UI.view = Object.keys(D.tree)[0];
+  UI.section = UI.view;
 }
 
 function render() {
-  ["rank", "move", "event", "search"].forEach(function (v) {
+  Array.prototype.forEach.call($("#mainTabs").children, function (b) {
+    b.classList.toggle("on", b.dataset.view === UI.view);
+  });
+  var rank = isRankView(UI.view);
+  $("#view-rank").classList.toggle("hidden", !rank);
+  ["move", "event", "search"].forEach(function (v) {
     $("#view-" + v).classList.toggle("hidden", v !== UI.view);
   });
-  if (UI.view === "rank") drawRank();
+  if (rank) drawRank();
   if (UI.view === "move") drawMove();
   if (UI.view === "event") drawEvents();
 }
@@ -138,21 +160,6 @@ function setupTheme() {
 
 // ────────────────────────────────────────── 랭킹 화면
 function setupRank() {
-  var sections = Object.keys(D.tree);
-  UI.section = sections[0];
-
-  var secBox = $("#secPick");
-  sections.forEach(function (s) {
-    var b = el("button", "", D.tree[s].label);
-    b.dataset.sec = s;
-    secBox.appendChild(b);
-  });
-  secBox.addEventListener("click", function (e) {
-    var b = e.target.closest("button"); if (!b) return;
-    UI.section = b.dataset.sec; UI.group = null; UI.sub = "";
-    fillGroups(); drawRank();
-  });
-
   $("#groupPick").addEventListener("change", function () {
     UI.group = this.value; UI.sub = "";
     fillSubs(); fillPeriods(); drawRank();
@@ -180,9 +187,6 @@ function fillGroups() {
   });
   if (!UI.group || !groups[UI.group]) UI.group = Object.keys(groups)[0];
   sel.value = UI.group;
-  Array.prototype.forEach.call($("#secPick").children, function (b) {
-    b.classList.toggle("on", b.dataset.sec === UI.section);
-  });
   fillSubs();
   fillPeriods();
 }
@@ -222,6 +226,7 @@ function rankKey() {
 }
 
 function drawRank() {
+  if (!isRankView(UI.view)) return;
   var key = rankKey();
   var table = key && D.latest.rankings[key];
   var list = $("#rankList");
@@ -296,10 +301,16 @@ function bookRow(id, b, rank, ch) {
 // ────────────────────────────────────────── 변동 화면
 function setupMove() {
   var sel = $("#movePick");
-  Object.keys(D.latest.rankings).forEach(function (key) {
-    var t = D.latest.rankings[key];
-    if (t.is_sub) return;
-    sel.appendChild(new Option(t.name + " · " + PERIOD_LABEL[t.period], key));
+  // 순위 기준이 다른 것끼리 섞이지 않도록 웹소설·E북·웹툰으로 묶어서 보여준다
+  Object.keys(D.tree).forEach(function (sec) {
+    var grp = document.createElement("optgroup");
+    grp.label = D.tree[sec].label;
+    Object.keys(D.latest.rankings).forEach(function (key) {
+      var t = D.latest.rankings[key];
+      if (t.is_sub || t.section !== sec) return;
+      grp.appendChild(new Option(t.name + " · " + PERIOD_LABEL[t.period], key));
+    });
+    if (grp.children.length) sel.appendChild(grp);
   });
   UI.moveKey = sel.value;
   sel.addEventListener("change", function () { UI.moveKey = this.value; drawMove(); });

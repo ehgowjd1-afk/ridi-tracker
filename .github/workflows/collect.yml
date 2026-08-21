@@ -2,8 +2,9 @@ name: 리디 랭킹 수집
 
 on:
   schedule:
-    # 매일 한국시간 오전 9시 (UTC 0시)
-    - cron: "0 0 * * *"
+    # 매일 한국시간 오전 8시 15분 (한국이 UTC보다 9시간 빠르므로 전날 UTC 23시 15분)
+    # GitHub 서버가 붐비면 몇 분 늦게 시작될 수 있습니다.
+    - cron: "15 23 * * *"
   workflow_dispatch:
     inputs:
       quick:
@@ -25,7 +26,8 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 수집은 40~50분 정도 걸립니다. 넉넉하게 90분까지 기다려 줍니다.
+    timeout-minutes: 90
 
     steps:
       - name: 저장소 내려받기
