@@ -92,8 +92,16 @@ jobs:
           git add docs/data
           if git diff --staged --quiet; then
             echo "바뀐 내용이 없어 커밋하지 않습니다."
-          else
-            DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
-            git commit -m "데이터 수집: $DATE"
-            git push
+            exit 0
           fi
+          DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -m "데이터 수집: $DATE"
+          # 태그 채우기 작업과 겹쳤을 수 있다. 충돌하면 방금 모은 쪽을 우선한다.
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git fetch origin main
+            git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || exit 1
+          done
+          echo "여러 번 시도했지만 저장하지 못했습니다."
+          exit 1
