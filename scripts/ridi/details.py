@@ -10,7 +10,7 @@ import json
 import re
 
 from . import config
-from .client import RidiError
+from .client import RateLimited, RidiError
 
 _PREPARED_RE = re.compile(
     r'<script[^>]+id="ISLANDS__PreparedData"[^>]*>(.*?)</script>',
@@ -25,6 +25,9 @@ def fetch_detail(client, book_id):
     url = f"{config.WEB_BASE}/books/{book_id}"
     try:
         html = client.get_text(url)
+    except RateLimited as e:
+        # 호출한 쪽이 "그만 멈춰야 한다"를 알 수 있게 표시해서 돌려준다
+        return {"id": str(book_id), "error": str(e), "rate_limited": True}
     except RidiError as e:
         return {"id": str(book_id), "error": str(e)}
 

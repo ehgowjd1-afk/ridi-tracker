@@ -157,13 +157,19 @@ def pick_detail_targets(meta, books, tables, limit):
 
 
 def pick_review_targets(meta, books, tables, limit):
-    """리뷰를 가져올 작품을 고른다 — 오래 안 본 것 + 상위권 위주."""
-    ranks = best_ranks(tables, only_daily=True)
+    """리뷰를 가져올 작품을 고른다 — 오래 안 본 것 + 상위권 위주.
+
+    이미 상세페이지를 한 번 열어본 작품만 고른다. 리뷰를 읽으려면 상세페이지에서
+    얻는 '리뷰 셀 ID'가 필요한데, 리뷰 때문에 무거운 상세페이지를 또 여는 순간
+    리디가 요청 과다로 막아버리기 때문이다. (2026-08-22에 실제로 막혔음)
+    """
+    ranks = best_ranks(tables)          # 전체 랭킹 기준 (e북에는 '오늘의 베스트'가 없다)
     seen = meta.get("reviews", {})
+    details_seen = meta.get("details", {})
 
     scored = []
     for bid, rank in ranks.items():
-        if bid not in books:
+        if bid not in books or bid not in details_seen:
             continue
         scored.append((seen.get(bid, ""), rank, bid))
     scored.sort()  # 한 번도 안 본 것("") 먼저, 그 다음 오래된 것, 그 안에서 상위권
@@ -240,10 +246,20 @@ def main():
     if not args.skip_details and args.max_details > 0:
         picked = pick_detail_targets(meta, books, tables, args.max_details)
         print(f"\n[4/5] 작품 상세 수집 — {len(picked)}건 (하루 상한 {args.max_details})")
+        blocked_in_a_row = 0
         for i, bid in enumerate(picked, 1):
             d = details.fetch_detail(client, bid)
             d["fetched_at"] = now_kst()
             detail_map[bid] = d
+            if d.get("rate_limited"):
+                blocked_in_a_row += 1
+                print(f"  [{i}/{len(picked)}] {bid} — 리디가 요청을 막음 ({blocked_in_a_row}회 연속)")
+                if blocked_in_a_row >= config.RATE_LIMIT_ABORT_AFTER:
+                    print(f"  → 연속으로 막혀서 상세 수집을 오늘은 여기서 멈춥니다 ({i - blocked_in_a_row}건 확보).")
+                    print(f"     남은 작품은 내일 이어서 모읍니다.")
+                    break
+                continue
+            blocked_in_a_row = 0
             if d.get("error"):
                 print(f"  [{i}/{len(picked)}] {bid} 실패 — {d['error']}")
             else:
@@ -261,23 +277,17 @@ def main():
     if not args.skip_reviews and args.max_reviews > 0:
         picked = pick_review_targets(meta, books, tables, args.max_reviews)
         print(f"\n[5/5] 리뷰 수집 — {len(picked)}작품 (작품당 최대 {config.REVIEWS_PER_BOOK}건)")
+        skipped = 0
         for i, bid in enumerate(picked, 1):
-            # 리뷰를 읽으려면 상세페이지에서 얻는 '리뷰 셀 ID'가 필요하다
+            # 리뷰를 읽으려면 상세페이지에서 얻은 '리뷰 셀 ID'가 필요하다.
+            # 여기서는 이미 저장해 둔 것만 쓴다 — 리뷰 때문에 상세페이지를 새로 열면
+            # 요청이 두 배가 되어 리디가 막아버린다.
             cell_id = (detail_map.get(bid) or {}).get("review_cell_id")
             if not cell_id:
                 saved = store.read("books", f"{bid}.json", default={}) or {}
                 cell_id = saved.get("review_cell_id")
             if not cell_id:
-                d = details.fetch_detail(client, bid)
-                cell_id = d.get("review_cell_id")
-                if not d.get("error"):
-                    d["fetched_at"] = now_kst()
-                    tags, meta_tags = details.split_keywords(
-                        d.get("keywords") or [], exclude=name_exclusions(books.get(bid)))
-                    d["tags"], d["meta_tags"] = tags, meta_tags
-                    detail_map.setdefault(bid, d)
-                    meta["details"][bid] = date
-            if not cell_id:
+                skipped += 1
                 continue
 
             fresh = reviews_mod.fetch_reviews(client, bid, cell_id)
@@ -303,7 +313,8 @@ def main():
             review_stats["added"] += added
             title = books.get(bid, {}).get("title", bid)[:24]
             print(f"  [{i}/{len(picked)}] {title:<26} 새 리뷰 {added:>3}건 (누적 {len(merged)})")
-        print(f"  → {review_stats['books']}작품 / 새 리뷰 {review_stats['added']}건")
+        print(f"  → {review_stats['books']}작품 / 새 리뷰 {review_stats['added']}건"
+              + (f" (리뷰 ID를 아직 몰라서 건너뜀 {skipped}건)" if skipped else ""))
     else:
         print("\n[5/5] 리뷰 건너뜀")
 
@@ -375,12 +386,15 @@ def main():
             "failures": failures,
             "reviews": review_stats,
             "details": len(detail_map),
+            "rate_limit_hits": client.rate_limit_hits,
         },
     })
 
     print("=" * 66)
     print(f"  완료 — {len(tables)}개 랭킹 / {len(books)}종 작품 / {len(all_events)}건 이벤트")
     print(f"  요청 {client.request_count}회, {elapsed/60:.1f}분 소요")
+    if client.rate_limit_hits:
+        print(f"  ⚠ 리디가 요청을 막은 횟수: {client.rate_limit_hits}회 — 계속 나오면 상한을 더 낮추세요")
     if failures:
         print(f"  실패한 랭킹 {len(failures)}개: " + ", ".join(f['name'] for f in failures[:5]))
     print("=" * 66)

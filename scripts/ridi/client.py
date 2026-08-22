@@ -18,21 +18,24 @@ from . import config
 class RidiClient:
     def __init__(self, interval=None, verbose=True):
         self.interval = config.REQUEST_INTERVAL_SEC if interval is None else interval
+        self.page_interval = max(self.interval, config.PAGE_INTERVAL_SEC)
         self.verbose = verbose
         self._last_request_at = 0.0
         self.request_count = 0
+        self.rate_limit_hits = 0          # 오늘 429를 몇 번 만났는지
 
     # ------------------------------------------------------------ 내부 도구
-    def _wait(self):
+    def _wait(self, interval):
         elapsed = time.time() - self._last_request_at
-        if elapsed < self.interval:
-            time.sleep(self.interval - elapsed)
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
         self._last_request_at = time.time()
 
-    def _open(self, req):
+    def _open(self, req, interval=None):
+        gap = self.interval if interval is None else interval
         last_error = None
         for attempt in range(1, config.MAX_RETRIES + 1):
-            self._wait()
+            self._wait(gap)
             try:
                 with urllib.request.urlopen(req, timeout=config.REQUEST_TIMEOUT_SEC) as resp:
                     raw = resp.read()
@@ -45,6 +48,15 @@ class RidiClient:
                 if e.code in (400, 404):
                     body = e.read().decode("utf-8", errors="replace")[:200]
                     raise RidiError(f"HTTP {e.code}: {body}") from e
+                # 429는 "너무 빠르다"는 뜻. 짧게 여러 번 조르지 말고 길게 한 번만 쉰다.
+                if e.code == 429:
+                    self.rate_limit_hits += 1
+                    if attempt >= 2:
+                        raise RateLimited("리디가 요청을 막았습니다 (429)") from e
+                    if self.verbose:
+                        print(f"    429 — {config.RATE_LIMIT_WAIT_SEC:.0f}초 쉬었다 다시 시도")
+                    time.sleep(config.RATE_LIMIT_WAIT_SEC)
+                    continue
                 last_error = e
             except Exception as e:  # 네트워크 오류 등
                 last_error = e
@@ -73,10 +85,11 @@ class RidiClient:
         return json.loads(self._open(req))
 
     def get_text(self, url):
+        """상세페이지 같은 무거운 HTML. API보다 간격을 더 두고 받아온다."""
         req = urllib.request.Request(url, headers=self._headers({
             "Accept": "text/html,application/xhtml+xml",
         }))
-        return self._open(req)
+        return self._open(req, interval=self.page_interval)
 
     def post_graphql(self, query, variables):
         body = json.dumps({"query": query, "variables": variables}).encode("utf-8")
@@ -95,4 +108,9 @@ class RidiClient:
 
 
 class RidiError(Exception):
+    pass
+
+
+class RateLimited(RidiError):
+    """리디가 '요청이 너무 많다'(429)고 막은 경우."""
     pass
