@@ -124,6 +124,8 @@ main { padding-top: 14px; padding-bottom: 60px; }
 .kwrow .ktrack { background: var(--chip); border-radius: 5px; height: 15px; overflow: hidden; }
 .kwrow .kfill { background: var(--accent); height: 100%; border-radius: 5px; }
 .kwrow .kval { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; font-size: .8rem; }
+.kwrow[data-tag] { cursor: pointer; border-radius: 6px; padding: 1px 3px; margin: 0 -3px; }
+.kwrow[data-tag]:hover { background: var(--chip); }
 .kwrow:hover .kw { color: var(--accent); }
 @media (max-width: 480px) {
   .kwrow { grid-template-columns: 1.4rem 6.5rem 1fr 4rem; font-size: .8rem; }

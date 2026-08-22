@@ -608,6 +608,8 @@ function renderKeyword(tagIndex, daily, key, name) {
   var list = el("div", "kwlist");
   top.forEach(function (p, i) {
     var row = el("div", "kwrow");
+    row.dataset.tag = p[0];
+    row.title = "누르면 이 키워드와 같이 붙는 키워드를 봅니다";
     row.appendChild(el("div", "kn", i + 1));
     row.appendChild(el("div", "kw", "#" + p[0]));
     var track = el("div", "ktrack");
@@ -617,6 +619,9 @@ function renderKeyword(tagIndex, daily, key, name) {
     row.appendChild(track);
     var share = tagged ? Math.round(p[1] / tagged * 100) : 0;
     row.appendChild(el("div", "kval", p[1] + "편 · " + share + "%"));
+    row.addEventListener("click", function () {
+      showCooccur(p[0], ids, tagIndex);
+    });
     list.appendChild(row);
   });
   body.appendChild(list);
@@ -624,8 +629,107 @@ function renderKeyword(tagIndex, daily, key, name) {
   var foot = el("p", "hint");
   foot.style.marginTop = "10px";
   foot.textContent = "서로 다른 키워드 " + rows.length + "종 중 상위 40개. "
-    + "%는 키워드를 확보한 " + tagged + "개 작품 대비 비율입니다.";
+    + "%는 키워드를 확보한 " + tagged + "개 작품 대비 비율입니다. "
+    + "키워드를 누르면 같이 붙는 키워드를 볼 수 있습니다.";
   body.appendChild(foot);
+}
+
+/** 고른 키워드가 붙은 작품들 안에서, 함께 붙은 다른 키워드의 비율을 보여준다. */
+function showCooccur(tag, ids, tagIndex) {
+  var tagId = tagIndex.dict.indexOf(tag);
+  if (tagId < 0) return;
+
+  // 이 키워드를 가진 작품만 추린다
+  var withTag = ids.filter(function (id) {
+    var l = tagIndex.books[id];
+    return l && l.indexOf(tagId) >= 0;
+  });
+  // 전체(범위 안에서 태그를 확보한 작품) 대비 비교용
+  var allTagged = ids.filter(function (id) {
+    var l = tagIndex.books[id];
+    return l && l.length;
+  });
+
+  function tally(list) {
+    var c = {};
+    list.forEach(function (id) {
+      var seen = {};
+      (tagIndex.books[id] || []).forEach(function (ti) {
+        if (seen[ti]) return;
+        seen[ti] = 1;
+        c[ti] = (c[ti] || 0) + 1;
+      });
+    });
+    return c;
+  }
+  var withC = tally(withTag);
+  var allC = tally(allTagged);
+
+  var rows = Object.keys(withC).map(function (ti) {
+    var n = withC[ti];
+    var base = allTagged.length ? (allC[ti] || 0) / allTagged.length : 0;   // 전체 비율
+    var here = withTag.length ? n / withTag.length : 0;                     // 이 안에서의 비율
+    return {
+      name: tagIndex.dict[ti],
+      n: n,
+      here: here,
+      lift: base > 0 ? here / base : 0,
+      isSelf: parseInt(ti, 10) === tagId
+    };
+  }).filter(function (r) { return !r.isSelf && r.n >= 2; })
+    .sort(function (a, b) { return b.here - a.here; });
+
+  var sheet = $("#sheet");
+  sheet.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  var body = $("#sheetBody");
+  body.innerHTML = "";
+
+  var h = el("div");
+  h.appendChild(el("h2", "", "#" + tag + " 와(과) 같이 붙는 키워드"));
+  h.appendChild(el("p", "hint",
+    "지금 보고 있는 범위에서 #" + tag + "이(가) 붙은 작품 " + withTag.length + "편 기준입니다."));
+  body.appendChild(h);
+
+  if (!rows.length) {
+    body.appendChild(el("p", "empty", "같이 붙은 키워드가 아직 충분하지 않습니다."));
+    return;
+  }
+
+  var card = el("div", "card");
+  card.appendChild(el("h3", "", "함께 나오는 비율"));
+  var listBox = el("div", "kwlist");
+  rows.slice(0, 30).forEach(function (r, i) {
+    var row = el("div", "kwrow");
+    row.appendChild(el("div", "kn", i + 1));
+    row.appendChild(el("div", "kw", "#" + r.name));
+    var track = el("div", "ktrack");
+    var fill = el("div", "kfill");
+    fill.style.width = (r.here * 100).toFixed(1) + "%";
+    track.appendChild(fill);
+    row.appendChild(track);
+    row.appendChild(el("div", "kval", Math.round(r.here * 100) + "% · " + r.n + "편"));
+    listBox.appendChild(row);
+  });
+  card.appendChild(listBox);
+  body.appendChild(card);
+
+  // 이 키워드와 유난히 붙어 다니는 조합 (전체 평균 대비 몇 배인지)
+  var strong = rows.filter(function (r) { return r.lift >= 1.5 && r.n >= 3; })
+    .sort(function (a, b) { return b.lift - a.lift; }).slice(0, 15);
+  if (strong.length) {
+    var c2 = el("div", "card");
+    c2.appendChild(el("h3", "", "특히 자주 붙는 조합"));
+    c2.appendChild(el("p", "hint",
+      "이 범위 전체에서 나오는 비율보다 유난히 높게 함께 나오는 키워드입니다."));
+    var tb = el("div", "tags");
+    tb.style.marginTop = "8px";
+    strong.forEach(function (r) {
+      tb.appendChild(el("span", "tag k", "#" + r.name + " ×" + r.lift.toFixed(1)));
+    });
+    c2.appendChild(tb);
+    body.appendChild(c2);
+  }
 }
 
 // ────────────────────────────────────────── 이벤트 화면

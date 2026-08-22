@@ -127,13 +127,15 @@ def name_exclusions(book):
     return [n for n in names if n]
 
 
-def best_ranks(tables, only_main=True, only_daily=False):
+def best_ranks(tables, only_main=True, only_daily=False, section=None):
     """작품별로 오늘 기록한 가장 높은 순위를 구한다."""
     best = {}
     for table in tables.values():
         if only_main and table["is_sub"]:
             continue
         if only_daily and table["period"] != "DAILY":
+            continue
+        if section and table.get("section") != section:
             continue
         for i, bid in enumerate(table["ids"]):
             r = i + 1
@@ -142,18 +144,34 @@ def best_ranks(tables, only_main=True, only_daily=False):
     return best
 
 
-def pick_detail_targets(meta, books, tables, limit):
+def section_book_ids(tables, section):
+    """그 분류(웹소설·E북·웹툰)의 랭킹에 한 번이라도 나온 작품 전부."""
+    ids = set()
+    for table in tables.values():
+        if table.get("section") == section:
+            ids.update(table["ids"])
+    return ids
+
+
+def pick_detail_targets(meta, books, tables, limit, section=None):
     """상세페이지를 열 작품을 고른다.
 
     우선순위: (1) 아직 한 번도 상세를 안 본 작품 중 상위권
               (2) 마지막으로 본 지 오래된 작품
+    section을 주면 그 분류의 작품만 고른다 (예: 웹툰만 몰아서 채울 때).
     """
-    ranks = best_ranks(tables)
+    # 순위는 '전체 랭킹' 기준으로 매기되, 세부 장르에만 있는 작품도 빠뜨리지 않는다
+    ranks = best_ranks(tables, section=section)
+    sub_ranks = best_ranks(tables, only_main=False, section=section)
     seen = meta.get("details", {})
 
+    candidates = section_book_ids(tables, section) if section else set(books)
+
     never, stale = [], []
-    for bid in books:
-        rank = ranks.get(bid, 9999)
+    for bid in candidates:
+        if bid not in books:
+            continue
+        rank = ranks.get(bid) or sub_ranks.get(bid) or 9999
         if bid in seen:
             stale.append((seen[bid], rank, bid))
         else:
@@ -196,6 +214,11 @@ def main():
     ap.add_argument("--skip-reviews", action="store_true")
     ap.add_argument("--skip-events", action="store_true")
     ap.add_argument("--interval", type=float, default=None, help="요청 간격(초)")
+    ap.add_argument("--skip-rankings", action="store_true",
+                    help="랭킹을 다시 받지 않고 저장된 오늘 순위를 재사용 (태그만 채울 때)")
+    ap.add_argument("--detail-section", default=None,
+                    choices=list(config.CATEGORY_TREE.keys()),
+                    help="이 분류의 작품 상세만 채운다 (webnovel / ebook / webtoon)")
     ap.add_argument("--max-details", type=int, default=config.MAX_DETAIL_FETCHES_PER_RUN)
     ap.add_argument("--max-reviews", type=int, default=config.MAX_REVIEW_FETCHES_PER_RUN)
     args = ap.parse_args()
@@ -216,29 +239,56 @@ def main():
     print("=" * 66)
 
     # --- 1. 랭킹 ---
-    print(f"\n[1/5] 랭킹 수집 — 총 {len(targets)}개")
-    tables, books, failures = collect_rankings(client, targets)
-    if not tables:
-        print("\n랭킹을 하나도 가져오지 못했습니다. 중단합니다.")
-        return 1
-    print(f"  → 랭킹 {len(tables)}개, 작품 {len(books)}종 확보")
+    if args.skip_rankings:
+        # 태그만 채우는 회차. 순위는 이미 오늘 받아둔 것을 그대로 쓴다.
+        print("\n[1/5] 랭킹 수집 건너뜀 — 저장된 순위를 재사용합니다")
+        saved = store.read("daily", f"{date}.json", default=None)
+        if not saved:
+            dates = (store.read("index.json", default={}) or {}).get("dates") or []
+            saved = store.read("daily", f"{dates[-1]}.json", default=None) if dates else None
+        if not saved or not saved.get("rankings"):
+            print("  저장된 순위가 없습니다. 랭킹부터 한 번 수집해야 합니다.")
+            return 1
+        tables = saved["rankings"]
+        catalog = store.read("books.json", default={}) or {}
+        books = {}
+        for bid, c in catalog.items():
+            books[bid] = {
+                "id": bid,
+                "title": c.get("t") or "",
+                "authors": c.get("a") or [],
+                "authors_full": [],
+                "publisher": c.get("pb"),
+            }
+        failures = []
+        print(f"  → 랭킹 {len(tables)}개 ({saved.get('date')}), 작품 {len(books)}종")
+    else:
+        print(f"\n[1/5] 랭킹 수집 — 총 {len(targets)}개")
+        tables, books, failures = collect_rankings(client, targets)
+        if not tables:
+            print("\n랭킹을 하나도 가져오지 못했습니다. 중단합니다.")
+            return 1
+        print(f"  → 랭킹 {len(tables)}개, 작품 {len(books)}종 확보")
 
     # --- 2. 어제와 비교 ---
-    print("\n[2/5] 어제와 비교")
-    prev_date = None
-    idx = store.read("index.json", default={}) or {}
-    for d in reversed(idx.get("dates", [])):
-        if d < date:
-            prev_date = d
-            break
-    prev = store.read("daily", f"{prev_date}.json", default=None) if prev_date else None
-    changes = compute_changes(tables, (prev or {}).get("rankings"))
-    if prev_date:
-        n_new = sum(len(c["new"]) for c in changes.values())
-        n_out = sum(len(c["out"]) for c in changes.values())
-        print(f"  → 기준일 {prev_date} / 신규 진입 {n_new}건, 순위권 이탈 {n_out}건")
+    prev_date, changes = None, {}
+    if args.skip_rankings:
+        print("\n[2/5] 어제와 비교 건너뜀 (순위를 새로 받지 않았습니다)")
     else:
-        print("  → 비교할 이전 기록이 없습니다 (오늘이 첫 수집)")
+        print("\n[2/5] 어제와 비교")
+        idx = store.read("index.json", default={}) or {}
+        for d in reversed(idx.get("dates", [])):
+            if d < date:
+                prev_date = d
+                break
+        prev = store.read("daily", f"{prev_date}.json", default=None) if prev_date else None
+        changes = compute_changes(tables, (prev or {}).get("rankings"))
+        if prev_date:
+            n_new = sum(len(c["new"]) for c in changes.values())
+            n_out = sum(len(c["out"]) for c in changes.values())
+            print(f"  → 기준일 {prev_date} / 신규 진입 {n_new}건, 순위권 이탈 {n_out}건")
+        else:
+            print("  → 비교할 이전 기록이 없습니다 (오늘이 첫 수집)")
 
     # --- 3. 이벤트 ---
     all_events = []
@@ -256,8 +306,10 @@ def main():
     detail_map = {}
     saved_details = set()          # 이번 실행 중 이미 파일로 적어둔 작품
     if not args.skip_details and args.max_details > 0:
-        picked = pick_detail_targets(meta, books, tables, args.max_details)
-        print(f"\n[4/5] 작품 상세 수집 — {len(picked)}건 (하루 상한 {args.max_details})")
+        picked = pick_detail_targets(meta, books, tables, args.max_details,
+                                     section=args.detail_section)
+        where = f" [{config.CATEGORY_TREE[args.detail_section]['label']}만]" if args.detail_section else ""
+        print(f"\n[4/5] 작품 상세 수집{where} — {len(picked)}건 (이번 회차 상한 {args.max_details})")
         blocked_in_a_row = 0
         for i, bid in enumerate(picked, 1):
             d = details.fetch_detail(client, bid)
@@ -345,20 +397,33 @@ def main():
     # 작품 상세 파일은 (1) 새로 상세를 가져온 작품 (2) 아직 파일이 없는 작품만 쓴다.
     # 매번 전부 다시 쓰면 바뀐 파일이 수천 개가 되어 기록이 지저분해지기 때문.
     written = len(saved_details)
-    for bid, book in books.items():
-        if bid in saved_details:
-            continue                       # 상세 수집 중에 이미 적어뒀다
-        if bid not in meta["files"]:
-            store.save_book_detail(book, None)
-            meta["files"][bid] = 1
-            written += 1
+    if not args.skip_rankings:
+        for bid, book in books.items():
+            if bid in saved_details:
+                continue                   # 상세 수집 중에 이미 적어뒀다
+            if bid not in meta["files"]:
+                store.save_book_detail(book, None)
+                meta["files"][bid] = 1
+                written += 1
     print(f"  작품 상세 파일 {written}개 기록")
 
-    store.update_catalog(books)
+    if not args.skip_rankings:
+        store.update_catalog(books)
     store.write_meta(meta)
 
     tagged, distinct = store.write_tag_index()
     print(f"  키워드 모음: {tagged}종 작품 / 서로 다른 태그 {distinct}개")
+
+    # 순위를 새로 받지 않은 회차는 순위 관련 파일을 건드리지 않는다
+    if args.skip_rankings:
+        elapsed = time.time() - started
+        print("=" * 66)
+        print(f"  태그 채우기 완료 — 상세 {len(detail_map)}건")
+        print(f"  요청 {client.request_count}회, {elapsed/60:.1f}분 소요")
+        if client.rate_limit_hits:
+            print(f"  ⚠ 리디가 요청을 막은 횟수: {client.rate_limit_hits}회")
+        print("=" * 66)
+        return 0
 
     daily = {
         "date": date,

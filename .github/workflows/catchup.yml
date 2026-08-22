@@ -11,6 +11,16 @@ on:
   schedule:
     - cron: "5 * * * *"     # 매시 5분 (한국시간 기준으로도 매시 5분)
   workflow_dispatch:
+    inputs:
+      section:
+        description: "먼저 채울 분류"
+        type: choice
+        options: ["webtoon", "webnovel", "ebook", "(전체)"]
+        default: "webtoon"
+      max_details:
+        description: "이번 회차에 채울 작품 수"
+        type: string
+        default: "400"
 
 permissions:
   contents: write
@@ -55,8 +65,15 @@ jobs:
       # 연속으로 막히면 수집기가 스스로 그 회차를 접습니다.
       - name: 태그 채우기
         if: steps.gate.outputs.run == 'yes'
-        timeout-minutes: 35
-        run: python scripts/collect.py --skip-reviews --skip-events --max-details 200
+        timeout-minutes: 40
+        env:
+          SECTION: ${{ inputs.section || 'webtoon' }}
+          MAXD: ${{ inputs.max_details || '400' }}
+        run: |
+          ARGS="--skip-rankings --skip-events --skip-reviews --max-details $MAXD"
+          if [ "$SECTION" != "(전체)" ]; then ARGS="$ARGS --detail-section $SECTION"; fi
+          echo "실행 옵션: $ARGS"
+          python scripts/collect.py $ARGS
 
       - name: 결과 저장(커밋)
         if: always() && steps.gate.outputs.run == 'yes'
