@@ -33,7 +33,7 @@ MAX_REVIEW_FETCHES_PER_RUN = 300
 REVIEWS_PER_BOOK = 50
 
 # 전체 소요 시간 어림
-#   랭킹 137×2초 + 이벤트 22×2초 + 상세 200×4초 + 리뷰 300×2초  ≈  30분
+#   랭킹 183×2초 + 이벤트 22×2초 + 상세 200×4초 + 리뷰 300×2초  ≈  32분
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -59,8 +59,10 @@ GRAPHQL_URL = f"{API_BASE}/graphql"
 PERIODS_SERIAL = ["DAILY", "WEEKLY", "MONTHLY"]
 PERIODS_BOOK = ["WEEKLY", "MONTHLY", "STEADY"]
 
-# 세부 장르는 요청을 아끼려고 앞의 두 가지만 모읍니다.
-SUB_PERIOD_COUNT = 2
+# 세부 장르도 전체 랭킹과 똑같이 3종 전부 모읍니다.
+# (랭킹은 가벼운 API 호출이라 늘려도 부담이 거의 없습니다. 세부 장르만 2종으로 두면
+#  '월간 베스트가 왜 없지?' 하고 헷갈립니다.)
+SUB_PERIOD_COUNT = 3
 
 PERIOD_LABELS = {
     "DAILY": "오늘의 베스트",
