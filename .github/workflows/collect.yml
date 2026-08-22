@@ -49,7 +49,10 @@ jobs:
 
       # 이 수집기는 파이썬 기본 기능만 쓰므로 따로 설치할 것이 없습니다.
 
+      # 이 단계만 55분으로 제한합니다. 여기서 시간이 넘쳐 멈추더라도
+      # 아래 '결과 저장' 단계가 실행되어, 그때까지 모은 것은 보존됩니다.
       - name: 수집 실행
+        timeout-minutes: 55
         run: |
           ARGS=""
           if [ "${{ inputs.quick }}" = "true" ]; then ARGS="$ARGS --quick"; fi
@@ -80,7 +83,9 @@ jobs:
             echo "- 데이터 파일이 만들어지지 않았습니다." >> $GITHUB_STEP_SUMMARY
           fi
 
+      # always() — 수집이 중간에 멈췄더라도 거기까지 모은 것은 올립니다.
       - name: 결과 저장(커밋)
+        if: always()
         run: |
           git config user.name "ehgowjd1-afk"
           git config user.email "ehgowjd1@gmail.com"

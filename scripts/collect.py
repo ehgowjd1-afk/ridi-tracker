@@ -105,6 +105,17 @@ def compute_changes(today_tables, prev_tables):
 
 
 # ---------------------------------------------------------------- 3. 상세·리뷰 대상 고르기
+def save_progress(store, meta, note=""):
+    """지금까지의 진행 상황을 즉시 파일에 적어둔다.
+
+    중간에 멈추더라도 여기까지 모은 것은 남는다.
+    (작업 시간이 넘쳐 강제 종료되면 마지막에 한 번만 저장하는 방식은 전부 날아간다)
+    """
+    store.write_meta(meta)
+    if note:
+        print(f"     … {note} 저장")
+
+
 def name_exclusions(book):
     """태그에서 걸러낼 이름들 (작가·번역가·출판사)."""
     if not book:
@@ -243,6 +254,7 @@ def main():
 
     # --- 4. 상세 (태그·걸린 이벤트) ---
     detail_map = {}
+    saved_details = set()          # 이번 실행 중 이미 파일로 적어둔 작품
     if not args.skip_details and args.max_details > 0:
         picked = pick_detail_targets(meta, books, tables, args.max_details)
         print(f"\n[4/5] 작품 상세 수집 — {len(picked)}건 (하루 상한 {args.max_details})")
@@ -267,8 +279,15 @@ def main():
                     d.get("keywords") or [], exclude=name_exclusions(books.get(bid)))
                 d["tags"], d["meta_tags"] = tags, meta_tags
                 meta["details"][bid] = date
+                # 바로바로 파일에 적어둔다 (중간에 멈춰도 남도록)
+                if bid in books:
+                    store.save_book_detail(books[bid], d)
+                    meta["files"][bid] = 1
+                    saved_details.add(bid)
                 title = books.get(bid, {}).get("title", bid)[:24]
                 print(f"  [{i}/{len(picked)}] {title:<26} 태그 {len(tags)}개 / 이벤트 {len(d['event_ids'])}개")
+            if i % 25 == 0:
+                save_progress(store, meta, f"상세 {i}건까지")
     else:
         print("\n[4/5] 작품 상세 건너뜀")
 
@@ -313,6 +332,8 @@ def main():
             review_stats["added"] += added
             title = books.get(bid, {}).get("title", bid)[:24]
             print(f"  [{i}/{len(picked)}] {title:<26} 새 리뷰 {added:>3}건 (누적 {len(merged)})")
+            if review_stats["books"] % 25 == 0:
+                save_progress(store, meta, f"리뷰 {review_stats['books']}작품까지")
         print(f"  → {review_stats['books']}작품 / 새 리뷰 {review_stats['added']}건"
               + (f" (리뷰 ID를 아직 몰라서 건너뜀 {skipped}건)" if skipped else ""))
     else:
@@ -323,14 +344,11 @@ def main():
 
     # 작품 상세 파일은 (1) 새로 상세를 가져온 작품 (2) 아직 파일이 없는 작품만 쓴다.
     # 매번 전부 다시 쓰면 바뀐 파일이 수천 개가 되어 기록이 지저분해지기 때문.
-    written = 0
+    written = len(saved_details)
     for bid, book in books.items():
-        d = detail_map.get(bid)
-        if d and not d.get("error"):
-            store.save_book_detail(book, d)
-            meta["files"][bid] = 1
-            written += 1
-        elif bid not in meta["files"]:
+        if bid in saved_details:
+            continue                       # 상세 수집 중에 이미 적어뒀다
+        if bid not in meta["files"]:
             store.save_book_detail(book, None)
             meta["files"][bid] = 1
             written += 1
