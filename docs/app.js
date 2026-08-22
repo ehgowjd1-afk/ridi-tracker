@@ -168,9 +168,10 @@ function setupTheme() {
 
 // ────────────────────────────────────────── 랭킹 화면
 function setupRank() {
-  $("#groupPick").addEventListener("change", function () {
-    UI.group = this.value; UI.sub = "";
-    fillSubs(); fillPeriods(); drawRank();
+  $("#groupPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    UI.group = b.dataset.g; UI.sub = "";
+    fillGroups(); drawRank();
   });
   $("#subPick").addEventListener("change", function () {
     UI.sub = this.value; fillPeriods(); drawRank();
@@ -187,14 +188,15 @@ function setupRank() {
 }
 
 function fillGroups() {
-  var sel = $("#groupPick");
-  sel.innerHTML = "";
+  var box = $("#groupPick");
   var groups = D.tree[UI.section].groups;
-  Object.keys(groups).forEach(function (g) {
-    sel.appendChild(new Option(g, g));
-  });
   if (!UI.group || !groups[UI.group]) UI.group = Object.keys(groups)[0];
-  sel.value = UI.group;
+  box.innerHTML = "";
+  Object.keys(groups).forEach(function (g) {
+    var b = el("button", UI.group === g ? "on" : "", g);
+    b.dataset.g = g;
+    box.appendChild(b);
+  });
   fillSubs();
   fillPeriods();
 }

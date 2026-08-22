@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -33,8 +33,10 @@
   <!-- ── 랭킹 ─────────────────────────────────────────── -->
   <section id="view-rank" class="view">
     <div class="controls">
+      <!-- 장르는 버튼으로 펼쳐 둡니다. 드롭다운에 넣으면 BL처럼 뒤에 있는 항목이
+           아예 없는 것처럼 보입니다. -->
+      <div class="seg" id="groupPick"></div>
       <div class="row">
-        <select id="groupPick" aria-label="장르"></select>
         <select id="subPick" aria-label="세부 장르"></select>
       </div>
       <div class="seg small" id="periodPick"></div>
@@ -95,7 +97,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="xlsx.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="xlsx.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
