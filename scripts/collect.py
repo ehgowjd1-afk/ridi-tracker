@@ -357,6 +357,9 @@ def main():
     store.update_catalog(books)
     store.write_meta(meta)
 
+    tagged, distinct = store.write_tag_index()
+    print(f"  키워드 모음: {tagged}종 작품 / 서로 다른 태그 {distinct}개")
+
     daily = {
         "date": date,
         "collected_at": now_kst(),

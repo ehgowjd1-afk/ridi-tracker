@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 
@@ -23,6 +23,7 @@
        세 가지는 리디에서 순위를 매기는 기준 자체가 다르므로 섞지 않습니다. -->
   <nav class="wrap tabs" id="mainTabs">
     <button data-view="move">변동</button>
+    <button data-view="keyword">키워드</button>
     <button data-view="event">이벤트</button>
     <button data-view="search">검색</button>
   </nav>
@@ -62,6 +63,31 @@
     <ol id="moveList" class="booklist"></ol>
   </section>
 
+  <!-- ── 키워드 ───────────────────────────────────────── -->
+  <section id="view-keyword" class="view hidden">
+    <div class="controls">
+      <div class="seg" id="kwSecPick"></div>
+      <div class="seg" id="kwGroupPick"></div>
+      <div class="row">
+        <select id="kwSubPick" aria-label="세부 장르"></select>
+      </div>
+      <div class="seg small" id="kwPeriodPick"></div>
+      <div class="row">
+        <label class="field">
+          <span>시점</span>
+          <select id="kwWhen" aria-label="시점"></select>
+        </label>
+        <label class="field narrow">
+          <span>몇 위까지</span>
+          <input type="number" id="kwTopN" min="1" max="200" step="1" value="100">
+        </label>
+      </div>
+      <label class="chk"><input type="checkbox" id="kwHideAdult"> 성인 작품 제외</label>
+    </div>
+    <div id="kwHead" class="listhead"></div>
+    <div id="kwBody"></div>
+  </section>
+
   <!-- ── 이벤트 ───────────────────────────────────────── -->
   <section id="view-event" class="view hidden">
     <div class="controls">
@@ -97,7 +123,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="xlsx.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="xlsx.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

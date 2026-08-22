@@ -8,6 +8,7 @@ var D = {
   latest: null,
   events: null,
   catalog: null,          // 전체 작품 (검색할 때만 불러옴)
+  tagIndex: null,         // 작품별 태그 모음 (키워드 화면에서만 불러옴)
   history: {},            // "2026-08" → 추이 데이터
   detail: {},             // 작품ID → 상세
   review: {},             // 작품ID → 리뷰
@@ -85,6 +86,7 @@ function boot() {
       setupTabs();
       setupRank();
       setupMove();
+      setupKeyword();
       setupEvent();
       setupSearch();
       setupTheme();
@@ -147,11 +149,12 @@ function render() {
   });
   var rank = isRankView(UI.view);
   $("#view-rank").classList.toggle("hidden", !rank);
-  ["move", "event", "search"].forEach(function (v) {
+  ["move", "keyword", "event", "search"].forEach(function (v) {
     $("#view-" + v).classList.toggle("hidden", v !== UI.view);
   });
   if (rank) drawRank();
   if (UI.view === "move") drawMove();
+  if (UI.view === "keyword") drawKeyword();
   if (UI.view === "event") drawEvents();
 }
 
@@ -378,6 +381,251 @@ function drawMove() {
     shown++;
   });
   if (!shown) list.appendChild(el("li", "empty", "해당하는 작품이 없습니다."));
+}
+
+// ────────────────────────────────────────── 키워드 화면
+// 특정 시점의 랭킹 TOP N 안에서 어떤 태그가 몇 번 나오는지 세어 막대로 보여준다.
+// 태그는 tags.json 한 파일에 모여 있고, 그날의 순위는 daily/날짜.json 에 있다.
+
+var KW = {
+  section: null, group: null, sub: "", period: null,
+  when: null,          // 선택한 시점의 실제 날짜 (YYYY-MM-DD)
+  topN: 100,
+  hideAdult: false,
+};
+
+function mondayOf(dateStr) {
+  var d = new Date(dateStr + "T00:00:00");
+  var day = (d.getDay() + 6) % 7;          // 월요일=0
+  d.setDate(d.getDate() - day);
+  return d.toISOString().slice(0, 10);
+}
+
+function setupKeyword() {
+  KW.section = Object.keys(D.tree)[0];
+
+  $("#kwSecPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    KW.section = b.dataset.sec; KW.group = null; KW.sub = "";
+    fillKwPickers(); drawKeyword();
+  });
+  $("#kwGroupPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    KW.group = b.dataset.g; KW.sub = "";
+    fillKwPickers(); drawKeyword();
+  });
+  $("#kwSubPick").addEventListener("change", function () {
+    KW.sub = this.value; fillKwPickers(); drawKeyword();
+  });
+  $("#kwPeriodPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    KW.period = b.dataset.p; fillKwPickers(); drawKeyword();
+  });
+  $("#kwWhen").addEventListener("change", function () {
+    KW.when = this.value; drawKeyword();
+  });
+  $("#kwTopN").addEventListener("input", function () {
+    var n = parseInt(this.value, 10);
+    KW.topN = (isFinite(n) && n > 0) ? Math.min(n, 200) : 0;
+    if (KW.topN) drawKeyword();
+  });
+  $("#kwHideAdult").addEventListener("change", function () {
+    KW.hideAdult = this.checked; drawKeyword();
+  });
+
+  var box = $("#kwSecPick");
+  Object.keys(D.tree).forEach(function (s) {
+    var b = el("button", "", D.tree[s].label);
+    b.dataset.sec = s;
+    box.appendChild(b);
+  });
+  fillKwPickers();
+}
+
+function kwTarget() {
+  var g = D.tree[KW.section].groups[KW.group];
+  if (!g) return null;
+  return KW.sub ? g.subs[KW.sub] : g.parent;
+}
+
+function fillKwPickers() {
+  var groups = D.tree[KW.section].groups;
+  if (!KW.group || !groups[KW.group]) KW.group = Object.keys(groups)[0];
+
+  Array.prototype.forEach.call($("#kwSecPick").children, function (b) {
+    b.classList.toggle("on", b.dataset.sec === KW.section);
+  });
+
+  var gbox = $("#kwGroupPick");
+  gbox.innerHTML = "";
+  Object.keys(groups).forEach(function (g) {
+    var b = el("button", KW.group === g ? "on" : "", g);
+    b.dataset.g = g;
+    gbox.appendChild(b);
+  });
+
+  var sub = $("#kwSubPick");
+  sub.innerHTML = "";
+  sub.appendChild(new Option("전체", ""));
+  Object.keys(groups[KW.group].subs).forEach(function (s) {
+    sub.appendChild(new Option(s, s));
+  });
+  sub.value = KW.sub;
+  sub.classList.toggle("hidden", Object.keys(groups[KW.group].subs).length === 0);
+
+  var t = kwTarget();
+  var pbox = $("#kwPeriodPick");
+  pbox.innerHTML = "";
+  if (!t) return;
+  var avail = PERIOD_ORDER.filter(function (p) { return t.periods.indexOf(p) >= 0; });
+  if (avail.indexOf(KW.period) < 0) KW.period = avail[0];
+  avail.forEach(function (p) {
+    var b = el("button", KW.period === p ? "on" : "", periodLabel(p));
+    b.dataset.p = p;
+    pbox.appendChild(b);
+  });
+
+  fillKwWhen();
+}
+
+/** 기간 종류에 맞춰 '시점' 목록을 만든다 — 일간은 날짜, 주간은 주, 월간은 달. */
+function fillKwWhen() {
+  var sel = $("#kwWhen");
+  var dates = (D.index.dates || []).slice().sort();
+  sel.innerHTML = "";
+  if (!dates.length) return;
+
+  var opts = [];
+  if (KW.period === "MONTHLY") {
+    var byMonth = {};
+    dates.forEach(function (d) { byMonth[d.slice(0, 7)] = d; });   // 그 달의 마지막 기록
+    Object.keys(byMonth).sort().reverse().forEach(function (m) {
+      var y = m.slice(0, 4), mm = parseInt(m.slice(5, 7), 10);
+      opts.push([byMonth[m], y + "년 " + mm + "월"]);
+    });
+  } else if (KW.period === "WEEKLY") {
+    var byWeek = {};
+    dates.forEach(function (d) { byWeek[mondayOf(d)] = d; });      // 그 주의 마지막 기록
+    Object.keys(byWeek).sort().reverse().forEach(function (mon) {
+      var s = new Date(mon + "T00:00:00");
+      var e = new Date(s); e.setDate(e.getDate() + 6);
+      var f = function (x) { return (x.getMonth() + 1) + "/" + x.getDate(); };
+      opts.push([byWeek[mon], f(s) + "~" + f(e) + " 주"]);
+    });
+  } else {
+    dates.slice().reverse().forEach(function (d) { opts.push([d, d]); });
+  }
+
+  opts.forEach(function (o) { sel.appendChild(new Option(o[1], o[0])); });
+  var values = opts.map(function (o) { return o[0]; });
+  if (values.indexOf(KW.when) < 0) KW.when = values[0];
+  sel.value = KW.when;
+}
+
+function loadDaily(date) {
+  return softJSON("data/daily/" + date + ".json");
+}
+
+function drawKeyword() {
+  if (UI.view !== "keyword") return;
+  var t = kwTarget();
+  var body = $("#kwBody");
+  if (!t || !KW.when) { body.innerHTML = '<p class="empty">고를 수 있는 자료가 없습니다.</p>'; return; }
+
+  var key = t.id + "-" + KW.period;
+  var name = (KW.sub || KW.group);
+  $("#kwHead").innerHTML = "<b>" + name + "</b> · " + periodLabel(KW.period)
+    + " · " + KW.when + " 기준 · TOP " + KW.topN;
+  body.innerHTML = '<p class="empty">세는 중…</p>';
+
+  var needCatalog = KW.hideAdult && !D.catalog;
+  Promise.all([
+    D.tagIndex ? Promise.resolve(D.tagIndex)
+      : softJSON("data/tags.json").then(function (j) { D.tagIndex = j; return j; }),
+    loadDaily(KW.when),
+    needCatalog ? getJSON("data/books.json").then(function (j) { D.catalog = j; return j; })
+      .catch(function () { return null; }) : Promise.resolve(null)
+  ]).then(function (r) {
+    renderKeyword(r[0], r[1], key, name);
+  });
+}
+
+function renderKeyword(tagIndex, daily, key, name) {
+  var body = $("#kwBody");
+  body.innerHTML = "";
+
+  if (!tagIndex || !tagIndex.books) {
+    body.appendChild(el("p", "empty", "키워드 자료(tags.json)가 아직 없습니다.\n다음 수집이 끝나면 생깁니다."));
+    return;
+  }
+  if (!daily || !daily.rankings || !daily.rankings[key]) {
+    body.appendChild(el("p", "empty", "이 시점에는 해당 랭킹 기록이 없습니다.\n다른 시점을 골라보세요."));
+    return;
+  }
+
+  var ids = daily.rankings[key].ids || [];
+  if (KW.hideAdult && D.catalog) {
+    ids = ids.filter(function (id) { var b = D.catalog[id]; return !(b && b.ad); });
+  }
+  ids = ids.slice(0, KW.topN);
+
+  var counts = {}, tagged = 0;
+  ids.forEach(function (id) {
+    var list = tagIndex.books[id];
+    if (!list || !list.length) return;
+    tagged++;
+    var seen = {};
+    list.forEach(function (ti) {
+      if (seen[ti]) return;               // 한 작품 안의 중복은 한 번만
+      seen[ti] = 1;
+      counts[ti] = (counts[ti] || 0) + 1;
+    });
+  });
+
+  // 태그를 아직 못 모은 작품이 많으면 솔직히 알려준다
+  var pct = ids.length ? Math.round(tagged / ids.length * 100) : 0;
+  var note = el("p", "covernote");
+  if (pct >= 90) {
+    note.textContent = ids.length + "개 작품 중 " + tagged + "개의 키워드를 반영했습니다 (" + pct + "%).";
+  } else {
+    note.innerHTML = ids.length + "개 작품 중 <b>" + tagged + "개(" + pct + "%)</b>만 키워드를 확보했습니다. "
+      + "작품 태그는 하루에 정해진 양만 모으므로, 며칠 지나면 채워집니다. "
+      + "지금 그래프는 참고용으로만 보세요.";
+  }
+  body.appendChild(note);
+
+  var rows = Object.keys(counts).map(function (ti) {
+    return [tagIndex.dict[ti], counts[ti]];
+  }).sort(function (a, b) { return b[1] - a[1] || a[0].localeCompare(b[0]); });
+
+  if (!rows.length) {
+    body.appendChild(el("p", "empty", "이 범위에서 확보된 키워드가 없습니다."));
+    return;
+  }
+
+  var top = rows.slice(0, 40);
+  var max = top[0][1];
+  var list = el("div", "kwlist");
+  top.forEach(function (p, i) {
+    var row = el("div", "kwrow");
+    row.appendChild(el("div", "kn", i + 1));
+    row.appendChild(el("div", "kw", "#" + p[0]));
+    var track = el("div", "ktrack");
+    var fill = el("div", "kfill");
+    fill.style.width = (p[1] / max * 100).toFixed(1) + "%";
+    track.appendChild(fill);
+    row.appendChild(track);
+    var share = tagged ? Math.round(p[1] / tagged * 100) : 0;
+    row.appendChild(el("div", "kval", p[1] + "편 · " + share + "%"));
+    list.appendChild(row);
+  });
+  body.appendChild(list);
+
+  var foot = el("p", "hint");
+  foot.style.marginTop = "10px";
+  foot.textContent = "서로 다른 키워드 " + rows.length + "종 중 상위 40개. "
+    + "%는 키워드를 확보한 " + tagged + "개 작품 대비 비율입니다.";
+  body.appendChild(foot);
 }
 
 // ────────────────────────────────────────── 이벤트 화면

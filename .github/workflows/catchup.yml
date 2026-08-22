@@ -1,0 +1,73 @@
+name: 키워드 태그 몰아 채우기
+
+# 작품 태그는 상세페이지에서만 나오는데, 평소에는 하루 200건씩만 모읍니다.
+# 키워드 분석 화면을 쓸 만큼 채우려면 한동안 자주 돌려야 해서 만든 임시 작업입니다.
+#
+# ▶ 언제까지 돌지는 아래 CATCHUP_UNTIL 한 줄로 정합니다.
+#   그 날짜(한국시간)가 지나면 아무 일도 하지 않고 바로 끝납니다.
+#   더 채우고 싶으면 날짜를 뒤로 미루고, 다 채웠으면 이 파일을 지우세요.
+
+on:
+  schedule:
+    - cron: "5 * * * *"     # 매시 5분 (한국시간 기준으로도 매시 5분)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect            # 매일 돌아가는 수집과 겹치지 않게 같은 그룹
+  cancel-in-progress: false
+
+env:
+  CATCHUP_UNTIL: "2026-08-22"   # 이 날(한국시간)까지만 돕니다
+
+jobs:
+  catchup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 오늘 돌 날인지 확인
+        id: gate
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%F)
+          echo "오늘(한국시간): $TODAY / 마감: $CATCHUP_UNTIL"
+          if [[ "$TODAY" > "$CATCHUP_UNTIL" ]]; then
+            echo "run=no" >> $GITHUB_OUTPUT
+            echo "마감일이 지나 건너뜁니다."
+          else
+            echo "run=yes" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 저장소 내려받기
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 리뷰·이벤트는 빼고 '작품 상세(태그)'만 채웁니다.
+      # 상세페이지는 무거워서 리디가 막을 수 있으므로 한 번에 200건까지만 하고,
+      # 연속으로 막히면 수집기가 스스로 그 회차를 접습니다.
+      - name: 태그 채우기
+        if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 35
+        run: python scripts/collect.py --skip-reviews --skip-events --max-details 200
+
+      - name: 결과 저장(커밋)
+        if: always() && steps.gate.outputs.run == 'yes'
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+          else
+            git pull --rebase --autostash
+            git commit -m "태그 채우기: $(TZ=Asia/Seoul date '+%m-%d %H시')"
+            git push
+          fi

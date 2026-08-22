@@ -109,6 +109,28 @@ main { padding-top: 14px; padding-bottom: 60px; }
 .seg.small button { padding: 4px 10px; font-size: .82rem; }
 .chk { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--dim); cursor: pointer; }
 
+.field { display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0; font-size: .84rem; color: var(--dim); }
+.field > span { flex: 0 0 auto; }
+.field select, .field input { flex: 1 1 auto; min-width: 0;
+  background: var(--card); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; color: var(--text); }
+.field.narrow { flex: 0 0 auto; }
+.field.narrow input { width: 5.5rem; text-align: right; }
+
+/* 키워드 분포 막대 */
+.kwlist { display: flex; flex-direction: column; gap: 5px; }
+.kwrow { display: grid; grid-template-columns: 1.5rem 8.5rem 1fr 4.6rem; gap: 8px; align-items: center; font-size: .85rem; }
+.kwrow .kn { color: var(--faint); font-size: .76rem; text-align: right; font-variant-numeric: tabular-nums; }
+.kwrow .kw { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.kwrow .ktrack { background: var(--chip); border-radius: 5px; height: 15px; overflow: hidden; }
+.kwrow .kfill { background: var(--accent); height: 100%; border-radius: 5px; }
+.kwrow .kval { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; font-size: .8rem; }
+.kwrow:hover .kw { color: var(--accent); }
+@media (max-width: 480px) {
+  .kwrow { grid-template-columns: 1.4rem 6.5rem 1fr 4rem; font-size: .8rem; }
+}
+.covernote { font-size: .8rem; color: var(--faint); margin: 0 0 10px; line-height: 1.5; }
+.covernote b { color: var(--up); }
+
 .listhead { font-size: .82rem; color: var(--dim); margin-bottom: 8px; }
 .listhead b { color: var(--text); }
 .hint { font-size: .82rem; color: var(--faint); margin: 0; }

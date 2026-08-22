@@ -137,6 +137,37 @@ class Store:
             payload["meta_tags"] = merged
         self.write(payload, "books", f"{book['id']}.json")
 
+    # ------------------------------------------------------------ 키워드 모음
+    def write_tag_index(self):
+        """모든 작품의 태그를 한 파일(tags.json)로 모은다 — 키워드 분석 화면용.
+
+        작품마다 파일을 따로 열면 화면에서 200개를 읽어야 해서 너무 느리다.
+        태그 이름은 사전에 한 번만 적고, 작품별로는 번호만 담아 파일을 작게 만든다.
+            {"dict": ["현대물","첫사랑",...], "books": {"작품ID":[0,1,5], ...}}
+        """
+        names, index, books = [], {}, {}
+        folder = self.path("books")
+        if not os.path.isdir(folder):
+            return 0, 0
+        for fn in os.listdir(folder):
+            if not fn.endswith(".json"):
+                continue
+            data = self.read("books", fn, default=None)
+            if not data:
+                continue
+            tags = data.get("tags") or []
+            if not tags:
+                continue
+            ids = []
+            for t in tags:
+                if t not in index:
+                    index[t] = len(names)
+                    names.append(t)
+                ids.append(index[t])
+            books[fn[:-5]] = ids
+        self.write({"dict": names, "books": books}, "tags.json")
+        return len(books), len(names)
+
     # ------------------------------------------------------------ 진행 상황 메모
     # 어떤 작품의 상세·리뷰를 언제 가져왔는지 기록해 둔다.
     # (작품 파일을 수천 개씩 열어보지 않고 다음 대상을 고르기 위해)
