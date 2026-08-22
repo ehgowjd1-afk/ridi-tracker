@@ -15,8 +15,8 @@ on:
       section:
         description: "먼저 채울 분류"
         type: choice
-        options: ["webtoon", "webnovel", "ebook", "(전체)"]
-        default: "webtoon"
+        options: ["webnovel", "webtoon", "ebook", "(전체)"]
+        default: "webnovel"
       max_details:
         description: "이번 회차에 채울 작품 수"
         type: string
@@ -67,7 +67,7 @@ jobs:
         if: steps.gate.outputs.run == 'yes'
         timeout-minutes: 40
         env:
-          SECTION: ${{ inputs.section || 'webtoon' }}
+          SECTION: ${{ inputs.section || 'webnovel' }}
           MAXD: ${{ inputs.max_details || '400' }}
         run: |
           ARGS="--skip-rankings --skip-events --skip-reviews --max-details $MAXD"
