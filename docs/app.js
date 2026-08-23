@@ -68,6 +68,19 @@ function toast(msg) {
   toast._t = setTimeout(function () { t.classList.add("hidden"); }, 2200);
 }
 
+/** 어떤 시각을 한국시간 기준 날짜(YYYY-MM-DD)로 바꾼다. */
+function kstDay(iso) {
+  var t = new Date(iso);
+  if (isNaN(t)) return null;
+  return new Date(t.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+}
+
+/** 두 날짜(YYYY-MM-DD) 사이의 날짜 수. 시각이 아니라 달력 기준으로 센다. */
+function dayGap(a, b) {
+  if (!a || !b) return null;
+  return Math.round((new Date(a + "T00:00:00Z") - new Date(b + "T00:00:00Z")) / 86400000);
+}
+
 function fmtDate(iso) {
   if (!iso) return "";
   var d = new Date(iso);
@@ -784,7 +797,7 @@ function drawEvents() {
   }
 
   var q = $("#eventQ").value.trim().toLowerCase();
-  var now = Date.now();
+  var today = kstDay(new Date());
   var list = pool.filter(function (e) {
     return !q || (e.title || "").toLowerCase().indexOf(q) >= 0;
   });
@@ -799,13 +812,15 @@ function drawEvents() {
     return endedView ? -d : d;
   });
 
+  var LIMIT = 500;
   var label = { ongoing: "진행 중", ended: "종료됨", all: "전체" }[UI.eventStatus];
   $("#eventHead").innerHTML = label + " <b>" + num(list.length) + "</b>건"
+    + (list.length > LIMIT ? " (앞의 " + LIMIT + "건만 표시)" : "")
     + (UI.eventStatus === "ongoing" && D.index && D.index.ended_count
         ? " · 종료된 이벤트 " + num(D.index.ended_count) + "건은 '종료됨'에서" : "");
 
   box.innerHTML = "";
-  list.slice(0, 500).forEach(function (e) {
+  list.slice(0, LIMIT).forEach(function (e) {
     var isEnded = e.status === "ended";
     var row = el("div", "eventrow");
 
@@ -818,19 +833,19 @@ function drawEvents() {
 
     var when = el("div", "when");
     when.textContent = fmtDate(e.start_date) + " ~ " + fmtDate(e.end_date) + "  ";
-    var ms = e.end_date ? (new Date(e.end_date) - now) : null;
-    if (ms !== null && !isNaN(ms)) {
-      if (ms >= 0 && !isEnded) {
-        // 아직 남음 — 며칠 남았는지
-        var left = Math.ceil(ms / 86400000);
-        if (left < 3650) {
-          when.appendChild(el("span", "dday" + (left <= 3 ? " soon" : ""),
-            left === 0 ? "오늘 종료" : "D-" + left));
+    // 한국시간 '날짜' 기준으로 센다. 시각으로 재면 어제 밤에 끝난 것이
+    // '오늘 종료'로 보이는 등 하루씩 어긋난다.
+    var gap = dayGap(kstDay(e.end_date), today);
+    if (gap !== null) {
+      if (gap > 0 && !isEnded) {
+        if (gap < 3650) {
+          when.appendChild(el("span", "dday" + (gap <= 3 ? " soon" : ""), "D-" + gap));
         }
-      } else if (ms < 0) {
-        // 이미 지남 — 며칠 전에 끝났는지 (몇 시간 전이면 '오늘 종료')
-        var ago = Math.floor(-ms / 86400000);
-        when.appendChild(el("span", "dday", ago === 0 ? "오늘 종료" : ago + "일 전 종료"));
+      } else if (gap === 0) {
+        when.appendChild(el("span", "dday soon", "오늘 종료"));
+      } else {
+        when.appendChild(el("span", "dday",
+          gap === -1 ? "어제 종료" : (-gap) + "일 전 종료"));
       }
     }
     row.appendChild(when);
