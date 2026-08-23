@@ -6,7 +6,7 @@
  "months": [
   "2026-08"
  ],
- "updated_at": "2026-08-23T09:27:00+09:00",
+ "updated_at": "2026-08-23T21:27:11+09:00",
  "latest_date": "2026-08-23",
  "book_count": 12326,
  "ranking_count": 183,
@@ -23,14 +23,15 @@
   "STEADY": "스테디셀러"
  },
  "last_run": {
-  "requests": 782,
-  "seconds": 1963.7,
+  "requests": 267,
+  "seconds": 533.8,
   "failures": [],
   "reviews": {
-   "books": 251,
-   "added": 10752
+   "books": 0,
+   "added": 0
   },
-  "details": 200,
+  "details": 0,
   "rate_limit_hits": 0
- }
+ },
+ "ended_count": 2216
 }
