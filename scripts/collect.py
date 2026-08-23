@@ -291,13 +291,31 @@ def main():
             print("  → 비교할 이전 기록이 없습니다 (오늘이 첫 수집)")
 
     # --- 3. 이벤트 ---
-    all_events = []
+    all_events, ended_events = [], []
     if not args.skip_events:
-        print(f"\n[3/5] 진행 중 이벤트 수집 — 장르 {len(config.EVENT_GENRES)}종")
-        all_events = events_mod.fetch_events(client)
-        print(f"  → 이벤트 {len(all_events)}건")
-        store.write({"date": date, "updated_at": now_kst(), "events": all_events},
+        print(f"\n[3/5] 이벤트 수집 — 장르 {len(config.EVENT_GENRES)}종")
+
+        prev_latest = store.read("events", "latest.json", default={}) or {}
+        last_ongoing = prev_latest.get("events") or []
+
+        all_events = events_mod.fetch_events(client, status="ongoing")
+        completed = events_mod.fetch_events(client, status="completed")
+
+        all_events = events_mod.carry_first_seen(all_events, last_ongoing, date)
+        ongoing_ids = {str(e["id"]) for e in all_events}
+
+        prev_ended = (store.read("events", "ended.json", default={}) or {}).get("events") or []
+        ended_events, from_api, from_ours = events_mod.merge_ended(
+            prev_ended, completed, ongoing_ids, last_ongoing, date)
+
+        print(f"  → 진행 중 {len(all_events)}건 / 종료 {len(ended_events)}건"
+              f" (이번에 새로 추가: 리디 {from_api}건, 우리 기록 {from_ours}건)")
+
+        store.write({"date": date, "updated_at": now_kst(),
+                     "events": all_events, "ended_count": len(ended_events)},
                     "events", "latest.json")
+        store.write({"date": date, "updated_at": now_kst(), "events": ended_events},
+                    "events", "ended.json")
         store.write({"date": date, "events": all_events}, "events", f"{date}.json")
     else:
         print("\n[3/5] 이벤트 건너뜀")
@@ -464,6 +482,7 @@ def main():
         "book_count": len(books),
         "ranking_count": len(tables),
         "event_count": len(all_events),
+        "ended_count": len(ended_events),
         "sections": {k: v["label"] for k, v in config.CATEGORY_TREE.items()},
         "periods": config.PERIOD_LABELS,
         "last_run": {

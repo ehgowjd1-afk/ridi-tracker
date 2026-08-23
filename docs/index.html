@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 
@@ -91,9 +91,14 @@
   <!-- ── 이벤트 ───────────────────────────────────────── -->
   <section id="view-event" class="view hidden">
     <div class="controls">
+      <div class="seg" id="eventStatus">
+        <button data-st="ongoing" class="on">진행 중</button>
+        <button data-st="ended">종료됨</button>
+        <button data-st="all">전체</button>
+      </div>
       <input type="search" id="eventQ" placeholder="이벤트 제목 검색">
       <div class="seg small" id="eventSort">
-        <button data-sort="end" class="on">종료 임박순</button>
+        <button data-sort="end" class="on">종료일순</button>
         <button data-sort="start">최근 시작순</button>
       </div>
     </div>
@@ -123,7 +128,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="xlsx.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="xlsx.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

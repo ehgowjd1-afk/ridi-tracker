@@ -6,7 +6,8 @@
 var D = {
   index: null,
   latest: null,
-  events: null,
+  events: null,           // 진행 중 이벤트
+  endedEvents: null,      // 종료된 이벤트 ('종료됨'을 누를 때만 불러옴)
   catalog: null,          // 전체 작품 (검색할 때만 불러옴)
   tagIndex: null,         // 작품별 태그 모음 (키워드 화면에서만 불러옴)
   history: {},            // "2026-08" → 추이 데이터
@@ -22,6 +23,7 @@ var UI = {
   hideAdult: false,
   moveKey: null, moveKind: "rise",
   eventSort: "end",
+  eventStatus: "ongoing",   // ongoing / ended / all
 };
 
 // 리디 화면에 쓰인 이름 그대로. 연재물(웹소설·웹툰)은 오늘/주간/월간,
@@ -741,46 +743,89 @@ function setupEvent() {
     Array.prototype.forEach.call(this.children, function (x) { x.classList.toggle("on", x === b); });
     drawEvents();
   });
+  $("#eventStatus").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    UI.eventStatus = b.dataset.st;
+    Array.prototype.forEach.call(this.children, function (x) { x.classList.toggle("on", x === b); });
+    drawEvents();
+  });
+}
+
+/** 지금 화면에 필요한 이벤트 목록을 (필요하면 불러와서) 돌려준다. */
+function eventPool() {
+  var need = UI.eventStatus;
+  if (!D.events) return null;
+  if (need === "ongoing") return D.events;
+  if (!D.endedEvents) return null;                 // 종료분은 누를 때만 불러온다
+  if (need === "ended") return D.endedEvents;
+  return D.events.concat(D.endedEvents);
 }
 
 function drawEvents() {
   if (UI.view !== "event") return;
   var box = $("#eventList");
-  if (!D.events) {
+
+  var pool = eventPool();
+  if (!pool) {
     box.innerHTML = '<p class="empty">불러오는 중…</p>';
-    softJSON("data/events/latest.json").then(function (j) {
-      D.events = (j && j.events) || [];
-      drawEvents();
-    });
+    var jobs = [];
+    if (!D.events) {
+      jobs.push(softJSON("data/events/latest.json").then(function (j) {
+        D.events = (j && j.events) || [];
+      }));
+    }
+    if (UI.eventStatus !== "ongoing" && !D.endedEvents) {
+      jobs.push(softJSON("data/events/ended.json").then(function (j) {
+        D.endedEvents = (j && j.events) || [];
+      }));
+    }
+    Promise.all(jobs).then(drawEvents);
     return;
   }
 
   var q = $("#eventQ").value.trim().toLowerCase();
   var now = Date.now();
-  var list = D.events.filter(function (e) {
+  var list = pool.filter(function (e) {
     return !q || (e.title || "").toLowerCase().indexOf(q) >= 0;
   });
+
+  var endedView = UI.eventStatus === "ended";
   list.sort(function (a, b) {
-    if (UI.eventSort === "end") return new Date(a.end_date || 0) - new Date(b.end_date || 0);
-    return new Date(b.start_date || 0) - new Date(a.start_date || 0);
+    if (UI.eventSort === "start") {
+      return new Date(b.start_date || 0) - new Date(a.start_date || 0);
+    }
+    // 진행 중은 곧 끝나는 것부터, 종료된 것은 최근에 끝난 것부터
+    var d = new Date(a.end_date || 0) - new Date(b.end_date || 0);
+    return endedView ? -d : d;
   });
 
-  $("#eventHead").innerHTML = "진행 중 <b>" + num(list.length) + "</b>건";
+  var label = { ongoing: "진행 중", ended: "종료됨", all: "전체" }[UI.eventStatus];
+  $("#eventHead").innerHTML = label + " <b>" + num(list.length) + "</b>건"
+    + (UI.eventStatus === "ongoing" && D.index && D.index.ended_count
+        ? " · 종료된 이벤트 " + num(D.index.ended_count) + "건은 '종료됨'에서" : "");
+
   box.innerHTML = "";
-  list.slice(0, 400).forEach(function (e) {
+  list.slice(0, 500).forEach(function (e) {
+    var isEnded = e.status === "ended";
     var row = el("div", "eventrow");
+
     var h = el("h3");
-    var a = el("a", "", e.title);
+    if (isEnded) h.appendChild(el("span", "badge", "종료"));
+    var a = el("a", "", " " + e.title);
     a.href = e.url; a.target = "_blank"; a.rel = "noopener";
     h.appendChild(a);
     row.appendChild(h);
 
     var when = el("div", "when");
-    var days = e.end_date ? Math.ceil((new Date(e.end_date) - now) / 86400000) : null;
     when.textContent = fmtDate(e.start_date) + " ~ " + fmtDate(e.end_date) + "  ";
-    if (days !== null && days >= 0 && days < 3650) {
-      var dd = el("span", "dday" + (days <= 3 ? " soon" : ""), days === 0 ? "오늘 종료" : "D-" + days);
-      when.appendChild(dd);
+    var days = e.end_date ? Math.ceil((new Date(e.end_date) - now) / 86400000) : null;
+    if (days !== null && days > -3650 && days < 3650) {
+      if (days >= 0 && !isEnded) {
+        when.appendChild(el("span", "dday" + (days <= 3 ? " soon" : ""),
+          days === 0 ? "오늘 종료" : "D-" + days));
+      } else if (days < 0) {
+        when.appendChild(el("span", "dday", Math.abs(days) + "일 전 종료"));
+      }
     }
     row.appendChild(when);
 

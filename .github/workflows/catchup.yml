@@ -7,9 +7,14 @@ name: 키워드 태그 몰아 채우기
 #   그 날짜(한국시간)가 지나면 아무 일도 하지 않고 바로 끝납니다.
 #   더 채우고 싶으면 날짜를 뒤로 미루고, 다 채웠으면 이 파일을 지우세요.
 
+# 2026-08-22에 웹툰·웹소설을 다 채워서 매시간 자동 실행은 껐습니다.
+# 이제는 필요할 때만 손으로 돌립니다 (Actions 탭 → 이 작업 → Run workflow).
+# 남은 것: E북 단행본. section 을 ebook 으로 골라 여러 번 돌리면 됩니다.
+# 다시 자동으로 돌리려면 아래 schedule 세 줄의 주석(#)을 풀고
+# CATCHUP_UNTIL 날짜를 미래로 바꾸세요.
 on:
-  schedule:
-    - cron: "5 * * * *"     # 매시 5분 (한국시간 기준으로도 매시 5분)
+  # schedule:
+  #   - cron: "5 * * * *"     # 매시 5분
   workflow_dispatch:
     inputs:
       section:
@@ -30,7 +35,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CATCHUP_UNTIL: "2026-08-22"   # 이 날(한국시간)까지만 돕니다
+  # 자동 실행을 다시 켤 때만 의미가 있습니다 (이 날짜가 지나면 아무 일도 안 함).
+  # 손으로 돌릴 때도 이 날짜를 지나면 건너뛰므로, 필요하면 미래 날짜로 바꾸세요.
+  CATCHUP_UNTIL: "2026-12-31"
 
 jobs:
   catchup:
