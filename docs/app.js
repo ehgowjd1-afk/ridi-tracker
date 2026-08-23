@@ -818,13 +818,19 @@ function drawEvents() {
 
     var when = el("div", "when");
     when.textContent = fmtDate(e.start_date) + " ~ " + fmtDate(e.end_date) + "  ";
-    var days = e.end_date ? Math.ceil((new Date(e.end_date) - now) / 86400000) : null;
-    if (days !== null && days > -3650 && days < 3650) {
-      if (days >= 0 && !isEnded) {
-        when.appendChild(el("span", "dday" + (days <= 3 ? " soon" : ""),
-          days === 0 ? "오늘 종료" : "D-" + days));
-      } else if (days < 0) {
-        when.appendChild(el("span", "dday", Math.abs(days) + "일 전 종료"));
+    var ms = e.end_date ? (new Date(e.end_date) - now) : null;
+    if (ms !== null && !isNaN(ms)) {
+      if (ms >= 0 && !isEnded) {
+        // 아직 남음 — 며칠 남았는지
+        var left = Math.ceil(ms / 86400000);
+        if (left < 3650) {
+          when.appendChild(el("span", "dday" + (left <= 3 ? " soon" : ""),
+            left === 0 ? "오늘 종료" : "D-" + left));
+        }
+      } else if (ms < 0) {
+        // 이미 지남 — 며칠 전에 끝났는지 (몇 시간 전이면 '오늘 종료')
+        var ago = Math.floor(-ms / 86400000);
+        when.appendChild(el("span", "dday", ago === 0 ? "오늘 종료" : ago + "일 전 종료"));
       }
     }
     row.appendChild(when);
