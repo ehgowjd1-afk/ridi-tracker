@@ -943,7 +943,8 @@ function drawBook(id, detail, reviewData, months) {
   head.appendChild(img);
 
   var hi = el("div");
-  hi.appendChild(el("h2", "", (detail && detail.title) || b.t || id));
+  // 제목은 카탈로그(books.json)가 항상 최신이다. 상세 파일은 다시 받을 때만 갱신된다.
+  hi.appendChild(el("h2", "", b.t || (detail && detail.title) || id));
   hi.appendChild(el("div", "au", (b.a || (detail && (detail.authors_full || []).map(function (a) { return a.name; })) || []).join(", ")));
   var stats = el("div", "dstats");
   if (b.r) stats.appendChild(el("span", "badge", "★ " + b.r + " (" + num(b.rc) + ")"));

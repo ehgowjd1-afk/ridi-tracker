@@ -4,7 +4,32 @@
 여기서 필요한 것만 골라 담는다.
 """
 
+import re
+
 from . import config
+
+# 리디는 web_title 자리에 "[e북]", "[웹툰]" 같은 표시용 딱지를 넣어둘 때가 있다.
+# 그걸 제목으로 쓰면 작품 이름이 전부 "[e북]"이 되어버린다.
+_LABEL_ONLY = re.compile(r"^\[[^\]]{1,8}\]$")
+
+
+def _pick_title(book, serial):
+    """사람이 부르는 작품 이름을 고른다.
+
+    순서: 시리즈 이름 → 세트 이름 → 책 제목 → web_title
+    대괄호만 있는 표시용 딱지는 건너뛴다.
+    """
+    candidates = [
+        (serial or {}).get("title"),
+        (book.get("set") or {}).get("title"),
+        book.get("title"),
+        book.get("web_title"),
+    ]
+    for c in candidates:
+        t = (c or "").strip()
+        if t and not _LABEL_ONLY.match(t):
+            return t
+    return ""
 
 
 def fetch_ranking(client, category_id, period, limit=200):
@@ -91,7 +116,7 @@ def parse_book(item):
         "id": book_id,
         "series_id": series_id,
         # 시리즈 제목이 있으면 그쪽이 사람이 부르는 이름 ("첫 실패 1화" → "첫 실패")
-        "title": serial.get("title") or book.get("web_title") or book.get("title") or "",
+        "title": _pick_title(book, serial),
         "book_title": book.get("title") or "",
         "authors": _main_authors(book),
         "authors_full": _authors(book),

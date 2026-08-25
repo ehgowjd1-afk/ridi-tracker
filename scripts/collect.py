@@ -451,12 +451,31 @@ def main():
     }
     store.write(daily, "daily", f"{date}.json")
 
+    # 순위 추이 기록. 전체 랭킹을 먼저 담고,
+    # 전체 랭킹에 한 번도 안 나온 작품은 세부 장르 순위라도 남긴다.
+    # (그러지 않으면 세부 장르에만 있던 작품은 순위권 밖으로 나간 뒤
+    #  검색해서 열어봐도 추이 그래프가 텅 비어 있다)
     rank_map = {}
     for key, table in tables.items():
         if table["is_sub"]:
             continue
         for i, bid in enumerate(table["ids"]):
             rank_map.setdefault(bid, {})[key] = i + 1
+
+    in_main = set(rank_map)                # 전체 랭킹에 이미 들어간 작품
+    MAX_SUB_KEYS = 3                       # 한 작품당 최대 3개(그 장르의 3기간)
+    for key, table in tables.items():
+        if not table["is_sub"]:
+            continue
+        for i, bid in enumerate(table["ids"]):
+            if bid in in_main:
+                continue                   # 전체 랭킹 기록이 있으면 그걸 쓴다
+            slot = rank_map.setdefault(bid, {})
+            if len(slot) < MAX_SUB_KEYS:
+                slot[key] = i + 1
+    sub_only = len(rank_map) - len(in_main)
+    if sub_only:
+        print(f"  세부 장르에만 있는 작품 {sub_only}종도 추이에 기록")
     rating_map = {bid: b["rating"] for bid, b in books.items()}
     store.update_history(date, rank_map, rating_map)
 
