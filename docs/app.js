@@ -904,7 +904,9 @@ function openBook(id) {
   var body = $("#sheetBody");
   body.innerHTML = '<p class="empty">불러오는 중…</p>';
 
-  var months = (D.index.months || []).slice(-12);
+  // 추이 파일은 한 달치가 6MB쯤 된다. 최근 3개월만 읽어 화면이 무거워지지 않게 한다.
+  // (더 긴 기간이 필요해지면 파일을 분류별로 쪼개야 한다)
+  var months = (D.index.months || []).slice(-3);
   Promise.all([
     softJSON("data/books/" + id + ".json"),
     softJSON("data/reviews/" + id + ".json"),
