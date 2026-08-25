@@ -9,7 +9,7 @@
  "months": [
   "2026-08"
  ],
- "updated_at": "2026-08-26T08:01:03+09:00",
+ "updated_at": "2026-08-26T08:22:27+09:00",
  "latest_date": "2026-08-26",
  "book_count": 12466,
  "ranking_count": 183,
@@ -27,7 +27,7 @@
  },
  "last_run": {
   "requests": 267,
-  "seconds": 534.1,
+  "seconds": 533.9,
   "failures": [],
   "reviews": {
    "books": 0,
