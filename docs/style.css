@@ -160,6 +160,7 @@ main { padding-top: 14px; padding-bottom: 60px; }
 .badge { font-size: .68rem; padding: 1px 5px; border-radius: 4px; background: var(--chip); color: var(--dim); font-weight: 600; }
 .badge.ex { background: rgba(31,111,235,.12); color: var(--accent); }
 .badge.ad { background: rgba(217,45,32,.12); color: var(--up); }
+.badge.set { background: rgba(6,118,71,.14); color: var(--new); }
 .star { font-size: .82rem; color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .empty { text-align: center; color: var(--faint); padding: 40px 10px; font-size: .9rem; }

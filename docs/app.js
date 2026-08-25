@@ -309,6 +309,8 @@ function bookRow(id, b, rank, ch) {
   info.appendChild(el("div", "tt", b.t || "(제목 없음)"));
   info.appendChild(el("div", "au", (b.a || []).join(", ")));
   var sub = el("div", "sub");
+  // 세트(묶음) 상품은 리디 순위에 단행본과 따로 올라온다. 합치지 않고 표시만 한다.
+  if (b.st) sub.appendChild(el("span", "badge set", b.sn ? "세트 " + b.sn + "권" : "세트"));
   if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
   if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
@@ -949,6 +951,7 @@ function drawBook(id, detail, reviewData, months) {
   hi.appendChild(el("h2", "", b.t || (detail && detail.title) || id));
   hi.appendChild(el("div", "au", (b.a || (detail && (detail.authors_full || []).map(function (a) { return a.name; })) || []).join(", ")));
   var stats = el("div", "dstats");
+  if (b.st) stats.appendChild(el("span", "badge set", b.sn ? "세트 " + b.sn + "권" : "세트"));
   if (b.r) stats.appendChild(el("span", "badge", "★ " + b.r + " (" + num(b.rc) + ")"));
   if (b.x) stats.appendChild(el("span", "badge ex", (detail && detail.exclusive_label) || "리디 독점"));
   if (b.ad) stats.appendChild(el("span", "badge ad", "19+"));

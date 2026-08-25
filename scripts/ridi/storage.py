@@ -73,6 +73,12 @@ class Store:
             out["x"] = 1
         if b.get("adults_only"):
             out["ad"] = 1
+        if b.get("is_set"):
+            # 세트(묶음) 상품. 리디 순위에 단행본과 따로 올라오므로 합치지 않고
+            # 화면에서 '세트' 표시만 붙인다.
+            out["st"] = 1
+            if b.get("set_total"):
+                out["sn"] = b["set_total"]
         if b.get("publisher"):
             out["pb"] = b["publisher"]
         if b.get("price_all") is not None:

@@ -174,6 +174,11 @@ def parse_book(item):
 
         "published_at": book.get("publication_date"),
         "registered_at": book.get("registration_date"),
+
+        # 세트(묶음) 상품 여부. 세트는 단행본과 ISBN이 같아서 이걸로 이어붙일 수 있다.
+        "isbn": book.get("isbn") or None,
+        "is_set": bool(book.get("set")),
+        "set_total": (book.get("set") or {}).get("total"),
     }
 
 
