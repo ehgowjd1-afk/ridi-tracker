@@ -118,12 +118,16 @@ function buildTree() {
   Object.keys(R).forEach(function (key) {
     var t = R[key];
     var sec = D.tree[t.section] || (D.tree[t.section] = { label: t.section, groups: {} });
-    var g = sec.groups[t.group] || (sec.groups[t.group] = { name: t.group, parent: null, subs: {} });
+    var g = sec.groups[t.group] || (sec.groups[t.group] = { name: t.group, parent: null, subs: {}, order: t.is_all ? 0 : 1 });
+    // 랭킹 키를 period별로 그대로 보관한다. category_id 로 키를 조립하면
+    // '전체 웹소설'처럼 여러 카테고리를 콤마로 묶은 경우 키가 깨진다.
     if (t.is_sub) {
-      var s = g.subs[t.name] || (g.subs[t.name] = { name: t.name, id: t.category_id, periods: [] });
+      var s = g.subs[t.name] || (g.subs[t.name] = { name: t.name, keys: {}, periods: [] });
+      s.keys[t.period] = key;
       s.periods.push(t.period);
     } else {
-      if (!g.parent) g.parent = { name: t.name, id: t.category_id, periods: [] };
+      if (!g.parent) g.parent = { name: t.name, keys: {}, periods: [] };
+      g.parent.keys[t.period] = key;
       g.parent.periods.push(t.period);
     }
   });
@@ -250,7 +254,7 @@ function fillPeriods() {
 
 function rankKey() {
   var t = currentTarget();
-  return t ? (t.id + "-" + UI.period) : null;
+  return t ? (t.keys[UI.period] || null) : null;
 }
 
 function drawRank() {
@@ -549,7 +553,7 @@ function drawKeyword() {
   var body = $("#kwBody");
   if (!t || !KW.when) { body.innerHTML = '<p class="empty">고를 수 있는 자료가 없습니다.</p>'; return; }
 
-  var key = t.id + "-" + KW.period;
+  var key = t.keys[KW.period];
   var name = (KW.sub || KW.group);
   $("#kwHead").innerHTML = "<b>" + name + "</b> · " + periodLabel(KW.period)
     + " · " + KW.when + " 기준 · TOP " + KW.topN;
