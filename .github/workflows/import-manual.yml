@@ -1,0 +1,53 @@
+name: 외부 자료로 날짜 채우기 (일회성)
+
+# 블로그 등 외부 자료로 특정 날짜의 주간·월간 랭킹을 채워 넣는 수동 작업입니다.
+# 채운 날은 source="manual" 로 표시되어 우리가 직접 수집한 날과 구분됩니다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      write:
+        description: "실제로 파일에 반영 (끄면 미리보기만)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 실행
+        run: |
+          if [ "${{ inputs.write }}" = "true" ]; then
+            python scripts/import_manual.py --write
+          else
+            python scripts/import_manual.py
+          fi
+
+      - name: 결과 저장(커밋)
+        if: ${{ inputs.write == true }}
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없습니다."
+          else
+            git commit -m "외부 자료로 2026-08-27 주간·월간 랭킹 채움 (로맨스 웹소설·E북)"
+            for i in 1 2 3 4 5; do
+              if git push; then echo "저장 완료"; exit 0; fi
+              git fetch origin main; git merge -X ours origin/main -m "동시 실행 합치기" || exit 1
+            done
+            exit 1
+          fi
