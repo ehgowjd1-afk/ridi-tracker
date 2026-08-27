@@ -1126,6 +1126,7 @@ function rankTrendCard(id, months) {
     var vals = pts.map(function (p) { return p.v; });
     note.textContent = vals.length
       ? "최고 " + Math.min.apply(null, vals) + "위 · 최근 " + vals[vals.length - 1] + "위 · " + vals.length + "일 기록"
+        + (s.gaps ? " · 수집이 없던 날 " + s.gaps + "일은 빈칸" : "")
       : "";
   }
 
@@ -1142,18 +1143,39 @@ function rankTrendCard(id, months) {
   return card;
 }
 
-/** 월별 파일들에서 하나의 시계열을 뽑아 [{d:날짜, v:값}] 로 만든다. */
+/** 월별 파일들에서 하나의 시계열을 뽑아 [{d:날짜, v:값}] 로 만든다.
+ *
+ * 수집이 없던 날(예: 2026-08-27 — GitHub 예약 실행이 누락된 날)은 빈칸으로 채운다.
+ * 그냥 앞뒤를 이어 그리면 없는 데이터가 있는 것처럼 보이기 때문이다.
+ */
 function collectSeries(months, pick) {
-  var pts = [];
+  var byDate = {}, seen = [];
   months.forEach(function (h) {
     if (!h || !h.days) return;
     var arr = pick(h) || [];
     h.days.forEach(function (day, i) {
       var v = (i < arr.length) ? arr[i] : null;
-      pts.push({ d: day, v: (v === undefined ? null : v) });
+      byDate[day] = (v === undefined ? null : v);
+      seen.push(day);
     });
   });
-  return { pts: pts };
+  if (!seen.length) return { pts: [], gaps: 0 };
+
+  seen.sort();
+  var pts = [], gaps = 0;
+  var cur = new Date(seen[0] + "T00:00:00Z");
+  var end = new Date(seen[seen.length - 1] + "T00:00:00Z");
+  while (cur <= end) {
+    var key = cur.toISOString().slice(0, 10);
+    if (key in byDate) {
+      pts.push({ d: key, v: byDate[key] });
+    } else {
+      pts.push({ d: key, v: null, missing: true });   // 그날은 수집 자체가 없었다
+      gaps++;
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return { pts: pts, gaps: gaps };
 }
 
 // ── 선 그래프 (SVG 직접 그리기) ──

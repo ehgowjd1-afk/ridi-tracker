@@ -20,6 +20,10 @@ on:
         description: "리뷰 수집 건너뛰기"
         type: boolean
         default: false
+      only_if_missing:
+        description: "오늘 것이 이미 모였으면 건너뛰기 (예비 실행과 같은 동작)"
+        type: boolean
+        default: false
       max_details:
         description: "작품 상세 수집 개수 (비우면 기본 600)"
         type: string
@@ -64,6 +68,7 @@ jobs:
           case "${{ github.event.schedule }}" in
             "15 1 * * *"|"15 4 * * *") ARGS="$ARGS --only-if-missing" ;;
           esac
+          if [ "${{ inputs.only_if_missing }}" = "true" ]; then ARGS="$ARGS --only-if-missing"; fi
           if [ "${{ inputs.quick }}" = "true" ]; then ARGS="$ARGS --quick"; fi
           if [ "${{ inputs.skip_reviews }}" = "true" ]; then ARGS="$ARGS --skip-reviews"; fi
           if [ -n "${{ inputs.max_details }}" ]; then ARGS="$ARGS --max-details ${{ inputs.max_details }}"; fi
