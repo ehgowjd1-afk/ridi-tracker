@@ -10,6 +10,10 @@ on:
         description: "실제로 파일에 반영 (끄면 미리보기만)"
         type: boolean
         default: false
+      redo:
+        description: "이미 넣은 그 날짜를 지우고 다시 넣기"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -29,11 +33,11 @@ jobs:
 
       - name: 실행
         run: |
-          if [ "${{ inputs.write }}" = "true" ]; then
-            python scripts/import_manual.py --write
-          else
-            python scripts/import_manual.py
-          fi
+          ARGS=""
+          if [ "${{ inputs.write }}" = "true" ]; then ARGS="$ARGS --write"; fi
+          if [ "${{ inputs.redo }}" = "true" ]; then ARGS="$ARGS --redo"; fi
+          echo "옵션: $ARGS"
+          python scripts/import_manual.py $ARGS
 
       - name: 결과 저장(커밋)
         if: ${{ inputs.write == true }}
