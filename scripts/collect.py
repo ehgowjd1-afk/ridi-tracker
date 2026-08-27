@@ -216,6 +216,9 @@ def main():
     ap.add_argument("--interval", type=float, default=None, help="요청 간격(초)")
     ap.add_argument("--skip-rankings", action="store_true",
                     help="랭킹을 다시 받지 않고 저장된 오늘 순위를 재사용 (태그만 채울 때)")
+    ap.add_argument("--only-if-missing", action="store_true",
+                    help="오늘 랭킹을 이미 모았으면 아무 것도 하지 않고 끝낸다 "
+                         "(예약 실행이 누락됐을 때를 대비한 예비 실행용)")
     ap.add_argument("--detail-section", default=None,
                     choices=list(config.CATEGORY_TREE.keys()),
                     help="이 분류의 작품 상세만 채운다 (webnovel / ebook / webtoon)")
@@ -237,6 +240,16 @@ def main():
     print(f"  리디 트래커 수집 시작 — {now_kst()} (한국시간)")
     print(f"  저장 위치: {args.data_dir}")
     print("=" * 66)
+
+    # 예비 실행: 오늘 것이 이미 다 모였으면 리디를 두 번 긁지 않는다.
+    if args.only_if_missing:
+        done = store.read("daily", f"{date}.json", default=None)
+        have = len((done or {}).get("rankings") or {})
+        if have >= len(targets):
+            print(f"\n오늘({date}) 랭킹 {have}개가 이미 모여 있습니다. 예비 실행은 건너뜁니다.")
+            return 0
+        print(f"\n오늘({date}) 랭킹이 {have}/{len(targets)}개뿐입니다. "
+              f"예약 실행이 누락된 것으로 보고 지금 수집합니다.")
 
     # --- 1. 랭킹 ---
     if args.skip_rankings:
