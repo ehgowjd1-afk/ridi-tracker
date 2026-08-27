@@ -1,0 +1,51 @@
+name: 추이(history) 재구성
+
+# daily 파일들을 근거로 history 파일을 처음부터 다시 만듭니다.
+# 날짜를 중간에 끼워 넣는 편집을 반복해 값이 어긋났을 때 바로잡는 용도입니다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      write:
+        description: "실제로 다시 쓰기 (끄면 미리보기)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 실행
+        run: |
+          if [ "${{ inputs.write }}" = "true" ]; then
+            python scripts/rebuild_history.py --write
+          else
+            python scripts/rebuild_history.py
+          fi
+      - name: 결과 저장(커밋)
+        if: ${{ inputs.write == true }}
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/history
+          if git diff --staged --quiet; then
+            echo "바뀐 내용 없음."
+          else
+            git commit -m "추이(history) 재구성 (daily 기준)"
+            for i in 1 2 3 4 5; do
+              if git push; then echo "저장 완료"; exit 0; fi
+              git fetch origin main; git merge -X ours origin/main -m "동시 실행 합치기" || exit 1
+            done
+            exit 1
+          fi
