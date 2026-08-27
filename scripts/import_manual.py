@@ -66,7 +66,7 @@ TABLES = {
         "잘못된 친구를 사귀면", "일탈 1995", "제물이 될지어다", "가전칠우쟁론기(家電七友爭論記)", "청선재",
         "더티 어프로치", "스위트 스폿(Sweet Spot)", "제철 맞은 로맨스", "연하의 연하", "시대가 원하는 인재상",
         "파멸의 낙원", "피치핑크 #2791", "리얼 페이크 러브", "더티 에어", "크래시게이트(Crashgate)",
-        "크레이지 페어", "교란종(攪亂種)", "노하우 다이렉트", "닮고 닮은 아저씨", "야행(夜行)",
+        "크레이지 페어", "교란종(攪亂種)", "노하우 다이렉트", "닳고 달은 아저씨", "야행(夜行)",
         "음란한 좋은 선배", "XOXO, 미스 미니", "목화다방", "여우 덫", "불량 식품에 길들여지면",
     ],
     "1700-WEEKLY": [
@@ -74,12 +74,30 @@ TABLES = {
         "사채업자 집에 입주교사로 들어가면", "서울에서 남자애 하나가 내려왔다더라", "이주", "러브:제로(Love:Zero)", "결락",
         "인 더 미들", "국대 남친에게 매일 밤 혼나고 싶어!", "젖몸살을 끝내는 법 [삽화본]", "푹푹", "겨울 정원 (외전증보판)",
         "숫것", "[GL] 옆집 언니", "난잡한 정략결혼", "[GL] 십 분의 오", "늦은 더위",
+        # 21~60위 (블로그 두·세 번째 이미지)
+        "환불 불가 소꿉친구", "또라이 상사 사용법", "겨울, 서리", "한 명의 난초가 되기까지", "닮고 닮은 아저씨",
+        "불량 식품에 길들여지면", "핑커 퐁커 스토커", "럭-키 흥신소", "멜팅 닥터(Melting Doctor)", "제철 맞은 로맨스",
+        "양의 언덕", "김우진의 여사친 걔", "스트레이트 플러시", "소꿉친구가 셋이면", "스플린(Spleen)",
+        "폭군의 우울", "더 누드(The Nude)", "그 여름의 사정", "여름 올가미", "움켜쥐면 모래",
+        "낭군 실종 사건", "개조심!(Cave Canem!)", "유휴시간", "네 번째 남편", "교란종(攪亂種)",
+        "신애", "소꿉친구한테 헤어지자고 했더니 감금당함", "더티 너티 러브", "은밀한 작전(A Covert Operation)", "신구간(新舊間)",
+        "메리 사이코", "냉궁에 핀 열락", "저주하고 싶은 대상이 있나요?", "어쩌다 오빠 친구와", "빨강",
+        "일곱 계단을 올라서", "전소", "소꿉친구 갑을전복기", "모린은 출장 중",
     ],
     "1700-MONTHLY": [
         "양의 언덕", "러브:제로(Love:Zero)", "숫것", "김우진의 여사친 걔", "멜팅 슈가(Melting Sugar)",
         "더티 너티 러브", "어느 쓰레기통의 취향저격", "산삼보다 더 귀한 신랑을 캤습니다", "사내 반려식물 관리 지침서", "상사도 밤에 쓰려면 없다",
         "가시 돋친 순애", "교란종(攪亂種)", "모린은 출장 중", "신애", "한 명의 난초가 되기까지",
         "은애하는 이를 묻지 마소서", "우리의 죄를 사하여", "구멍가게 불법 의료원", "제물이 될지어다", "꽃은 미끼야",
+        # 21~60위 (블로그 두·세 번째 이미지)
+        "난잡한 정략결혼", "남편이 가출했다", "여우 사냥", "시절연애", "일탈 1995",
+        "국대 남친에게 매일 밤 혼나고 싶어!", "더 홀(The Hole)", "은산", "스토커 관찰 일지", "미드나잇 스캔들",
+        "꽃거지", "저주가 친절하고 소꿉친구가 맛있어요", "몽영(夢影)", "순종적 임신", "할 짓 다 해 놓고선",
+        "엉망, 진창", "화상흔", "맴맴", "메리 사이코", "낭군 실종 사건",
+        "우기", "청선재", "진혼가(鎭魂歌)", "파수", "안티체스(Antichess)",
+        "상태 이상 캠퍼스 로맨스", "움켜쥐면 모래", "불철주야 : 밤낮을 가리지 아니함", "불량 식품에 길들여지면", "터치 유어 바디(Touch Your Body)",
+        "꽃등", "엽차에 동동", "개같은 아저씨", "임신 교육", "천산에는 연꽃이 핀다",
+        "외꺼풀이 되고 싶었다", "슈가 쇼크(Sugar shock)", "러브 어택 트리거", "더 누드(The Nude)", "나의 엔젤",
     ],
 }
 
@@ -99,6 +117,8 @@ def norm(s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--write", action="store_true", help="실제로 파일에 반영")
+    ap.add_argument("--redo", action="store_true",
+                    help="이미 넣은 그 날짜 기록을 지우고 다시 넣는다 (history에서도 제거)")
     args = ap.parse_args()
 
     store = Store(DATA_DIR)
@@ -178,8 +198,14 @@ def main():
 
     existing = store.read("daily", f"{TARGET_DATE}.json", default=None)
     if existing and existing.get("rankings"):
-        print(f"\n이미 {TARGET_DATE} 파일이 있습니다. 덮어쓰지 않습니다. 중단.")
-        return 1
+        if not args.redo:
+            print(f"\n이미 {TARGET_DATE} 파일이 있습니다. 다시 넣으려면 --redo 를 붙이세요.")
+            return 1
+        if existing.get("source") != "manual":
+            print(f"\n⚠️ {TARGET_DATE} 는 우리가 직접 수집한 날입니다. 덮어쓰지 않습니다. 중단.")
+            return 1
+        print(f"기존 {TARGET_DATE}(manual) 기록을 지우고 다시 넣습니다.")
+        remove_from_history(store, TARGET_DATE)
 
     store.write({
         "date": TARGET_DATE,
@@ -208,6 +234,24 @@ def main():
 
     print(f"\n✓ {TARGET_DATE} 저장 완료 (source=manual). 추이·날짜목록에도 반영.")
     return 0
+
+
+def remove_from_history(store, date):
+    """history에서 특정 날짜 칸을 뺀다 (--redo 로 다시 넣기 전에)."""
+    month = date[:7]
+    hist = store.read("history", f"{month}.json", default=None)
+    if not hist or date not in hist["days"]:
+        return
+    pos = hist["days"].index(date)
+    hist["days"].pop(pos)
+    for bid, keymap in hist["rank"].items():
+        for k, series in keymap.items():
+            if pos < len(series):
+                series.pop(pos)
+    for bid, series in hist["rating"].items():
+        if pos < len(series):
+            series.pop(pos)
+    store.write(hist, "history", f"{month}.json")
 
 
 def inject_history(store, date, rank_map):

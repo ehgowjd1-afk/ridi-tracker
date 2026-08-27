@@ -46,6 +46,8 @@ WEB_BASE = "https://ridibooks.com"
 BESTSELLER_URL = f"{API_BASE}/v2/bestsellers"
 EVENTS_URL = f"{API_BASE}/v2/events"
 GRAPHQL_URL = f"{API_BASE}/graphql"
+# 추천탭의 '실시간 랭킹'(지금 읽히는 순위). 일간 베스트와 다른 별도 순위다.
+READING_URL = f"{API_BASE}/v2/reading-books"
 
 # ---------------------------------------------------------------- 랭킹 기간
 # 리디는 연재물과 단행본에 서로 다른 기준을 씁니다. 리디 화면 그대로 따릅니다.
@@ -74,6 +76,17 @@ PERIOD_LABELS = {
 # ---------------------------------------------------------------- 카테고리
 # section: 웹사이트 상단 대분류 (webnovel / ebook / webtoon)
 # 각 항목은 (카테고리ID, 이름, [하위 (ID, 이름) ...])
+
+# '전체' 랭킹 — 리디의 "웹소설 베스트 / e북 베스트" 페이지가 쓰는 카테고리 조합.
+# bestsellers API 에 콤마로 여러 ID를 넣으면 통합 순위(200위)를 준다.
+# (ridibooks.com/bestsellers/serial · /bestsellers/ebook 의 실제 요청에서 확인)
+ALL_GROUPS = {
+    "webnovel": (999001, "전체 웹소설",
+                 "1651,1652,6050,1750,4150,4151,4152,4153"),
+    "ebook": (999002, "전체 E북",
+              "1701,1702,1704,1705,1706,1708,6000,1710,1711,1712,1713,1714,"
+              "1715,1716,1720,1721,1722,4100,4101,4102,4103,4104"),
+}
 
 CATEGORY_TREE = {
     # 웹소설 (연재물)
@@ -183,6 +196,22 @@ def iter_ranking_targets():
     """수집할 랭킹 목록을 만든다. 기간은 분류별로 리디 화면과 똑같이 맞춘다."""
     for section, info in CATEGORY_TREE.items():
         periods = periods_for(section)
+
+        # 각 섹션 맨 앞에 '전체' 랭킹 (있는 경우). 화면에서도 맨 앞에 나온다.
+        if section in ALL_GROUPS:
+            all_id, all_name, all_cats = ALL_GROUPS[section]
+            for period in periods:
+                yield {
+                    "key": f"{all_id}-{period}",
+                    "section": section,
+                    "group": all_name,
+                    "name": all_name,
+                    "category_id": all_cats,   # 콤마로 이어진 여러 ID
+                    "period": period,
+                    "is_sub": False,
+                    "is_all": True,
+                }
+
         for cat_id, cat_name, subs in info["groups"]:
             for period in periods:
                 yield {
