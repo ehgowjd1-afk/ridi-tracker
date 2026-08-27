@@ -1216,9 +1216,15 @@ function lineChart(pts, opt) {
     svg.appendChild(mk("text", { x: 4, y: y + 3.5 }, opt.fmt ? opt.fmt(Math.round(v * 100) / 100) : v));
   });
 
+  // 값이 없는 날에는 두 가지가 있다.
+  //   · missing  = 우리가 그날 수집을 못 한 날  → 앞뒤를 이어 그린다 (가로 간격은 그대로 둠)
+  //   · 그 외     = 그날 순위 밖이었던 것       → 선을 끊는다
   var d = "", started = false;
   pts.forEach(function (p, i) {
-    if (p.v === null) { started = false; return; }
+    if (p.v === null) {
+      if (!p.missing) started = false;
+      return;
+    }
     d += (started ? " L" : " M") + X(i) + " " + Y(p.v);
     started = true;
   });
