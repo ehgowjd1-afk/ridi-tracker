@@ -11,11 +11,11 @@
  "months": [
   "2026-08"
  ],
- "updated_at": "2026-08-28T06:17:50+09:00",
+ "updated_at": "2026-08-28T08:05:39+09:00",
  "latest_date": "2026-08-28",
- "book_count": 12457,
- "ranking_count": 183,
- "event_count": 574,
+ "book_count": 12495,
+ "ranking_count": 189,
+ "event_count": 598,
  "sections": {
   "webnovel": "웹소설",
   "ebook": "E북 단행본",
@@ -28,14 +28,14 @@
   "STEADY": "스테디셀러"
  },
  "last_run": {
-  "requests": 767,
-  "seconds": 1933.2,
+  "requests": 273,
+  "seconds": 546.1,
   "failures": [],
   "reviews": {
-   "books": 196,
-   "added": 8276
+   "books": 0,
+   "added": 0
   },
-  "details": 200,
+  "details": 0,
   "rate_limit_hits": 0
  },
  "ended_count": 2466
