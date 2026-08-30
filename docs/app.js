@@ -274,7 +274,7 @@ function drawRank() {
     var b = D.latest.books[id];
     if (!b) return;
     if (UI.hideAdult && b.ad) return;
-    list.appendChild(bookRow(id, b, i + 1, ch));
+    list.appendChild(bookRow(id, b, i + 1, ch, key));
     shown++;
   });
   $("#rankHead").innerHTML = "<b>" + table.name + "</b> · " + periodLabel(table.period)
@@ -293,7 +293,7 @@ function deltaEl(id, ch) {
   return d;
 }
 
-function bookRow(id, b, rank, ch) {
+function bookRow(id, b, rank, ch, ctxKey) {
   var li = el("li", "bookrow");
   li.tabIndex = 0;
 
@@ -327,8 +327,10 @@ function bookRow(id, b, rank, ch) {
   star.innerHTML = b.r ? ("★ " + b.r + "<br><span style='opacity:.65'>" + num(b.rc) + "</span>") : "";
   li.appendChild(star);
 
-  li.addEventListener("click", function () { openBook(id); });
-  li.addEventListener("keydown", function (e) { if (e.key === "Enter") openBook(id); });
+  // ctxKey = 지금 보고 있는 랭킹 키(예: "1650-WEEKLY"). 작품을 열면 그 랭킹 기준으로
+  // 추이를 먼저 보여준다. (없으면 대표 랭킹으로 기본 표시)
+  li.addEventListener("click", function () { openBook(id, ctxKey); });
+  li.addEventListener("keydown", function (e) { if (e.key === "Enter") openBook(id, ctxKey); });
   return li;
 }
 
@@ -398,7 +400,7 @@ function drawMove() {
     var fake = { moves: {}, new: [], has_prev: true };
     if (r.isNew) fake.new = [r.id];
     else if (r.delta) fake.moves[r.id] = r.delta;
-    list.appendChild(bookRow(r.id, b, r.rank || "–", fake));
+    list.appendChild(bookRow(r.id, b, r.rank || "–", fake, UI.moveKey));
     shown++;
   });
   if (!shown) list.appendChild(el("li", "empty", "해당하는 작품이 없습니다."));
@@ -903,7 +905,7 @@ function runSearch() {
 }
 
 // ────────────────────────────────────────── 작품 상세
-function openBook(id) {
+function openBook(id, ctxKey) {
   var sheet = $("#sheet");
   sheet.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -923,7 +925,7 @@ function openBook(id) {
     D.events ? Promise.resolve(D.events)
       : softJSON("data/events/latest.json").then(function (j) { D.events = (j && j.events) || []; return D.events; })
   ]).then(function (r) {
-    drawBook(id, r[0], r[1], r[2].filter(Boolean));
+    drawBook(id, r[0], r[1], r[2].filter(Boolean), ctxKey);
   });
 }
 
@@ -938,7 +940,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") closeSheet();
 });
 
-function drawBook(id, detail, reviewData, months) {
+function drawBook(id, detail, reviewData, months, ctxKey) {
   var b = D.latest.books[id] || (D.catalog && D.catalog[id]) || {};
   var body = $("#sheetBody");
   body.innerHTML = "";
@@ -976,7 +978,7 @@ function drawBook(id, detail, reviewData, months) {
   body.appendChild(head);
 
   // ── 순위 추이 ──
-  body.appendChild(rankTrendCard(id, months));
+  body.appendChild(rankTrendCard(id, months, ctxKey));
 
   // ── 별점 추이 ──
   var ratingSeries = collectSeries(months, function (h) { return (h.rating || {})[id]; });
@@ -1089,37 +1091,88 @@ function barRow(label, value, total, cls) {
 }
 
 // ── 순위 추이 카드 (일간/주간/월간/연간 전환) ──
-function rankTrendCard(id, months) {
-  var card = el("div", "card");
-  var h = el("h3", "", "순위 추이");
-  card.appendChild(h);
-
-  var avail = [];
-  PERIOD_ORDER.forEach(function (p) {
-    var found = null;
-    months.forEach(function (m) {
-      var slot = (m.rank || {})[id];
-      if (!slot) return;
-      Object.keys(slot).forEach(function (k) { if (k.slice(-p.length - 1) === "-" + p) found = k; });
-    });
-    if (found) avail.push({ period: p, key: found });
+// 랭킹 키 접두어(카테고리ID) → 사람이 읽는 이름·성격. latest.json 에서 한 번만 만든다.
+var _catLabels = null;
+function catLabelMap() {
+  if (_catLabels) return _catLabels;
+  _catLabels = {};
+  var R = (D.latest && D.latest.rankings) || {};
+  Object.keys(R).forEach(function (k) {
+    var t = R[k];
+    var pfx = k.slice(0, k.lastIndexOf("-"));
+    if (!_catLabels[pfx]) {
+      _catLabels[pfx] = { name: t.name, isAll: !!t.is_all, isSub: !!t.is_sub };
+    }
   });
+  return _catLabels;
+}
 
-  if (!avail.length) {
+// 순위 추이 카드.
+//   한 작품은 여러 랭킹에 동시에 오른다 (예: '전체 웹소설' + '로맨스 웹소설' + '현대물').
+//   예전에는 그중 하나를 임의로(사실상 '전체') 골라 그려서, 로맨스에서 눌러도
+//   전체 순위가 나왔다. 이제 '어느 랭킹 기준으로 볼지'를 고를 수 있게 하고,
+//   작품을 열었던 그 랭킹(ctxKey)을 기본값으로 보여준다.
+function rankTrendCard(id, months, ctxKey) {
+  var card = el("div", "card");
+  card.appendChild(el("h3", "", "순위 추이"));
+
+  var labels = catLabelMap();
+
+  // 이 작품이 실제로 오른 랭킹들을 카테고리별로 모은다: {접두어: {기간: 전체키}}
+  var byCat = {};
+  months.forEach(function (m) {
+    var slot = (m.rank || {})[id];
+    if (!slot) return;
+    Object.keys(slot).forEach(function (k) {
+      var dash = k.lastIndexOf("-");
+      var pfx = k.slice(0, dash), per = k.slice(dash + 1);
+      if (!labels[pfx]) return;               // latest 에 없는(사라진) 랭킹은 무시
+      (byCat[pfx] || (byCat[pfx] = {}))[per] = k;
+    });
+  });
+  var cats = Object.keys(byCat);
+  if (!cats.length) {
     card.appendChild(el("p", "hint", "아직 추이 데이터가 없습니다. 며칠 모으면 그래프가 그려집니다."));
     return card;
   }
+  // 정렬: 전체 → 대표 장르 → 세부 장르
+  function order(c) { return labels[c].isAll ? 0 : (labels[c].isSub ? 2 : 1); }
+  cats.sort(function (a, b) { return order(a) - order(b); });
 
-  var seg = el("div", "seg small");
-  seg.style.marginBottom = "10px";
+  // 기본 선택: 열었던 랭킹(ctxKey). 없으면 대표 장르, 그것도 없으면 첫째.
+  var ctxPfx = ctxKey ? ctxKey.slice(0, ctxKey.lastIndexOf("-")) : null;
+  var state = {
+    cat: (ctxPfx && byCat[ctxPfx]) ? ctxPfx
+       : (cats.filter(function (c) { return order(c) === 1; })[0] || cats[0]),
+    period: null,
+  };
+
+  var catSeg = el("div", "seg small");
+  var perSeg = el("div", "seg small");
+  perSeg.style.marginTop = "6px";
   var wrap = el("div", "chartwrap");
   var note = el("p", "hint");
 
-  function show(item) {
-    Array.prototype.forEach.call(seg.children, function (b) {
-      b.classList.toggle("on", b.dataset.p === item.period);
+  function periodsOf(cat) {
+    return PERIOD_ORDER.filter(function (p) { return byCat[cat][p]; });
+  }
+
+  function draw() {
+    Array.prototype.forEach.call(catSeg.children, function (b) {
+      b.classList.toggle("on", b.dataset.c === state.cat);
     });
-    var s = collectSeries(months, function (h) { return ((h.rank || {})[id] || {})[item.key]; });
+    var pers = periodsOf(state.cat);
+    if (pers.indexOf(state.period) < 0) state.period = pers[0];
+    perSeg.innerHTML = "";
+    pers.forEach(function (p) {
+      var b = el("button", state.period === p ? "on" : "", periodLabel(p));
+      b.dataset.p = p;
+      b.addEventListener("click", function () { state.period = p; draw(); });
+      perSeg.appendChild(b);
+    });
+
+    var key = byCat[state.cat][state.period];
+    var s = collectSeries(months, function (h) { return ((h.rank || {})[id] || {})[key]; });
     wrap.innerHTML = "";
     var pts = s.pts.filter(function (p) { return p.v !== null; });
     if (pts.length < 2) {
@@ -1129,21 +1182,26 @@ function rankTrendCard(id, months) {
     }
     var vals = pts.map(function (p) { return p.v; });
     note.textContent = vals.length
-      ? "최고 " + Math.min.apply(null, vals) + "위 · 최근 " + vals[vals.length - 1] + "위 · " + vals.length + "일 기록"
-        + (s.gaps ? " · 수집이 없던 날 " + s.gaps + "일은 빈칸" : "")
+      ? labels[state.cat].name + " 기준 · 최고 " + Math.min.apply(null, vals) + "위 · 최근 "
+        + vals[vals.length - 1] + "위 · " + vals.length + "일 기록"
+        + (s.gaps ? " · 수집 없던 날 " + s.gaps + "일 빈칸" : "")
       : "";
   }
 
-  avail.forEach(function (item) {
-    var b = el("button", "", periodLabel(item.period));
-    b.dataset.p = item.period;
-    b.addEventListener("click", function () { show(item); });
-    seg.appendChild(b);
-  });
-  card.appendChild(seg);
+  // 랭킹이 둘 이상일 때만 '어느 랭킹으로 볼지' 버튼을 보인다.
+  if (cats.length > 1) {
+    cats.forEach(function (c) {
+      var b = el("button", "", labels[c].name);
+      b.dataset.c = c;
+      b.addEventListener("click", function () { state.cat = c; draw(); });
+      catSeg.appendChild(b);
+    });
+    card.appendChild(catSeg);
+  }
+  card.appendChild(perSeg);
   card.appendChild(wrap);
   card.appendChild(note);
-  show(avail[0]);
+  draw();
   return card;
 }
 
