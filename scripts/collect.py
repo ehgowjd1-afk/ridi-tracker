@@ -490,7 +490,8 @@ def main():
     if sub_only:
         print(f"  세부 장르에만 있는 작품 {sub_only}종도 추이에 기록")
     rating_map = {bid: b["rating"] for bid, b in books.items()}
-    store.update_history(date, rank_map, rating_map)
+    count_map = {bid: b.get("rating_count") for bid, b in books.items()}
+    store.update_history(date, rank_map, rating_map, count_map)
 
     # 사이트가 제일 먼저 읽는 파일. 오늘 순위에 오른 작품 정보를 같이 담아두면
     # 전체 카탈로그(books.json)를 받지 않아도 화면이 바로 그려진다.

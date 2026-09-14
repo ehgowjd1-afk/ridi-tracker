@@ -188,25 +188,28 @@ class Store:
         self.write(meta, "_meta.json")
 
     # ------------------------------------------------------------ 추이(그래프)
-    def update_history(self, date, rank_map, rating_map):
+    def update_history(self, date, rank_map, rating_map, count_map=None):
         """달 단위 추이 파일을 갱신한다 (그래프용).
 
         rank_map:   {book_id: {ranking_key: 순위}}
         rating_map: {book_id: 평균별점}
+        count_map:  {book_id: 별점 참여 수}  ← 별점 개수 추이용
 
         저장 형태
             {"month":"2026-08",
              "days":["2026-08-20","2026-08-21","2026-08-22"],
              "rank":{"작품ID":{"1650-DAILY":[12,11,null]}},
-             "rating":{"작품ID":[4.8,4.8,4.9]}}
+             "rating":{"작품ID":[4.8,4.8,4.9]},
+             "count":{"작품ID":[120,131,140]}}
 
         날짜를 매번 적으면 파일이 몇 배로 커지므로, days 순서에 맞춘 배열로 넣는다.
         배열이 days보다 짧으면 나머지 날은 '기록 없음'을 뜻한다.
         """
         month = date[:7]
         hist = self.read("history", f"{month}.json", default=None) or {
-            "month": month, "days": [], "rank": {}, "rating": {}
+            "month": month, "days": [], "rank": {}, "rating": {}, "count": {}
         }
+        hist.setdefault("count", {})   # 예전에 만들어진 파일 호환
 
         # 같은 날 두 번 돌리면 마지막 값으로 덮어쓴다
         if hist["days"] and hist["days"][-1] == date:
@@ -231,6 +234,10 @@ class Store:
         for book_id, rating in rating_map.items():
             if rating is not None:
                 put(hist["rating"].setdefault(book_id, []), rating)
+
+        for book_id, cnt in (count_map or {}).items():
+            if cnt is not None:
+                put(hist["count"].setdefault(book_id, []), cnt)
 
         self.write(hist, "history", f"{month}.json")
         return month

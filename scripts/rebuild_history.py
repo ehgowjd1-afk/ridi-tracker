@@ -65,7 +65,8 @@ def main():
         months.setdefault(d[:7], []).append(d)
 
     for month, mdates in months.items():
-        hist = {"month": month, "days": [], "rank": {}, "rating": {}}
+        # rating = 평균 별점(r), count = 별점 참여 수(rc). 둘 다 snapshots 에서 뽑는다.
+        hist = {"month": month, "days": [], "rank": {}, "rating": {}, "count": {}}
         for date in mdates:
             daily = store.read("daily", f"{date}.json", default=None)
             if not daily:
@@ -84,15 +85,20 @@ def main():
                     while len(series) < slot:
                         series.append(None)
                     series.append(rank)
-            # rating
+            # rating(평균) 과 count(별점 개수)
             for bid, snap in snaps.items():
                 r = snap.get("r")
-                if r is None:
-                    continue
-                series = hist["rating"].setdefault(bid, [])
-                while len(series) < slot:
-                    series.append(None)
-                series.append(r)
+                if r is not None:
+                    series = hist["rating"].setdefault(bid, [])
+                    while len(series) < slot:
+                        series.append(None)
+                    series.append(r)
+                rc = snap.get("rc")
+                if rc is not None:
+                    series = hist["count"].setdefault(bid, [])
+                    while len(series) < slot:
+                        series.append(None)
+                    series.append(rc)
 
         # 길이를 days 에 맞춰 뒤를 None 패딩 (그날 순위에 없던 작품)
         n = len(hist["days"])
@@ -100,11 +106,13 @@ def main():
             for series in book.values():
                 while len(series) < n:
                     series.append(None)
-        for series in hist["rating"].values():
-            while len(series) < n:
-                series.append(None)
+        for store_key in ("rating", "count"):
+            for series in hist[store_key].values():
+                while len(series) < n:
+                    series.append(None)
 
-        print(f"[{month}] {len(hist['days'])}일치, 추적 작품 {len(hist['rank'])}종")
+        print(f"[{month}] {len(hist['days'])}일치, 추적 작품 {len(hist['rank'])}종, "
+              f"별점개수 {len(hist['count'])}종")
         if args.write:
             store.write(hist, "history", f"{month}.json")
 

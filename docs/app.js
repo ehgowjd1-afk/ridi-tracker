@@ -980,15 +980,32 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
   // ── 순위 추이 ──
   body.appendChild(rankTrendCard(id, months, ctxKey));
 
-  // ── 별점 추이 ──
-  var ratingSeries = collectSeries(months, function (h) { return (h.rating || {})[id]; });
-  if (ratingSeries.pts.filter(function (p) { return p.v !== null; }).length >= 2) {
+  // ── 별점 개수 추이 ──
+  // 평균 별점(4.9x)은 거의 안 변해서 추이로 의미가 없다. 대신 별점(참여) 개수가
+  // 며칠간 얼마나 늘었는지를 보여준다. 값이 늘수록 위로 올라간다(invert 안 함).
+  var countSeries = collectSeries(months, function (h) { return (h.count || {})[id]; });
+  var cPts = countSeries.pts.filter(function (p) { return p.v !== null; });
+  if (cPts.length >= 2) {
     var rc = el("div", "card");
-    rc.appendChild(el("h3", "", "별점 추이"));
+    rc.appendChild(el("h3", "", "별점 개수 추이"));
     var w = el("div", "chartwrap");
-    w.appendChild(lineChart(ratingSeries.pts, { invert: false, fmt: function (v) { return v.toFixed(2); } }));
+    w.appendChild(lineChart(countSeries.pts, {
+      invert: false, fmt: function (v) { return num(Math.round(v)); }
+    }));
     rc.appendChild(w);
+    var first = cPts[0].v, last = cPts[cPts.length - 1].v, diff = last - first;
+    rc.appendChild(el("p", "hint",
+      cPts.length + "일간 " + num(first) + "개 → " + num(last) + "개"
+      + " (" + (diff >= 0 ? "+" : "") + num(diff) + "개)"
+      + (countSeries.gaps ? " · 수집 없던 날 " + countSeries.gaps + "일 빈칸" : "")));
     body.appendChild(rc);
+  } else if (b.rc) {
+    // 아직 추이가 쌓이지 않은 작품(오늘 처음 잡힌 등)은 현재 개수만 안내.
+    var rc0 = el("div", "card");
+    rc0.appendChild(el("h3", "", "별점 개수 추이"));
+    rc0.appendChild(el("p", "hint",
+      "현재 별점 " + num(b.rc) + "개. 며칠 더 모이면 늘어나는 추이가 그려집니다."));
+    body.appendChild(rc0);
   }
 
   // ── 태그 ──
