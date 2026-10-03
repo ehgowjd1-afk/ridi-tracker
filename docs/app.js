@@ -13,6 +13,7 @@ var D = {
   axes: null,             // 리디 키워드 분류(축) (조합 탭에서만 불러옴)
   history: {},            // "2026-08" → 추이 데이터
   detail: {},             // 작품ID → 상세
+  dailyCache: {},         // 날짜 → daily 스냅샷 (조합 탭 과거 시점용)
   review: {},             // 작품ID → 리뷰
   tree: {},               // 섹션 → 장르 → {parent, subs}
 };
@@ -874,7 +875,8 @@ function workScoreRow(c, pos, ctxKey) {
 //  조합 탭 — 리디 키워드 분류(축)로 키워드를 묶고, 조합을 쌓아
 //  작품/강도를 본다. "어떤 조합이 순위·누적수·유의미도에서 강한가".
 // ════════════════════════════════════════════════════════════
-var CB = { section: null, group: null, hideAdult: false, sel: [], sort: "rank", _cache: {} };
+var CB = { section: null, group: null, period: null, when: null,
+  hideAdult: false, sel: [], sort: "rank", _cache: {}, _src: null };
 
 // 조합 분석에서 뺄 축/키워드 (운영·형식·통계성)
 var CB_DROP_AXIS = { "뿌리를 찾아서": 1, "BL브랜드": 1, "만웹대여제": 1 };
@@ -913,39 +915,85 @@ function cbResolveSet() {
   return { label: set.title, axes: axes, uni: uni };
 }
 
-// 카테고리 작품 목록 (가중평균 순위 + rc + 태그) — 캐시
+// 선택한 기간(일/주/월) + 시점 하나의 랭킹으로 작품 목록을 만든다.
+//   mean = 그 랭킹에서의 순위(1위=1). rc = 그 시점의 누적 별점수(스냅샷).
 function cbBuildWorks() {
-  var ckey = CB.section + "|" + CB.group + "|" + (CB.hideAdult ? 1 : 0);
-  if (CB._cache[ckey]) return CB._cache[ckey];
+  var ck = CB.section + "|" + CB.group + "|" + CB.period + "|" + CB.when + "|" + (CB.hideAdult ? 1 : 0);
+  if (CB._cache[ck]) return CB._cache[ck];
   var g = (D.tree[CB.section].groups[CB.group] || {}).parent;
-  if (!g) return { works: [], N: 0 };
-  var periods = PERIOD_ORDER.filter(function (p) { return g.keys[p]; });
-  var w = {};
-  periods.forEach(function (p, i) { w[p] = i + 1; });
-  var rankOf = {};
-  periods.forEach(function (p) {
-    var t = D.latest.rankings[g.keys[p]]; var m = {};
-    if (t) t.ids.forEach(function (id, i) { m[id] = i + 1; });
-    rankOf[p] = m;
-  });
-  var dict = D.tagIndex.dict, books = D.tagIndex.books;
-  var seen = {}, works = [];
-  periods.forEach(function (p) {
-    var t = D.latest.rankings[g.keys[p]]; if (!t) return;
-    t.ids.forEach(function (id) {
-      if (seen[id]) return; seen[id] = 1;
-      var b = D.latest.books[id] || {};
-      if (CB.hideAdult && b.ad) return;
-      var sw = 0, swr = 0, nP = 0;
-      periods.forEach(function (pp) { var r = rankOf[pp][id]; if (r) { sw += w[pp]; swr += w[pp] * r; nP++; } });
-      if (!nP) return;
-      works.push({ id: id, mean: swr / sw, rc: b.rc || 0, nP: nP,
-        tags: (books[id] || []).map(function (ti) { return dict[ti]; }) });
-    });
-  });
-  var out = { works: works, N: works.length };
-  CB._cache[ckey] = out;
+  var out = { works: [], N: 0 };
+  if (g && CB._src && CB.period) {
+    var tbl = CB._src.rankings[g.keys[CB.period]];
+    if (tbl) {
+      var dict = D.tagIndex.dict, books = D.tagIndex.books, works = [];
+      tbl.ids.forEach(function (id, i) {
+        var b = CB._src.bookOf(id) || {};
+        if (CB.hideAdult && b.ad) return;
+        works.push({ id: id, mean: i + 1, rc: CB._src.rcOf(id), nP: 1,
+          t: b.t, a: b.a, x: b.x, ad: b.ad,
+          tags: (books[id] || []).map(function (ti) { return dict[ti]; }) });
+      });
+      out = { works: works, N: works.length };
+    }
+  }
+  CB._cache[ck] = out;
   return out;
+}
+
+// 시점(날짜/주/월) 목록. 일간=하루마다, 주간=일요일 기준, 월간=말일 기준.
+function cbSundayKey(dateStr) {
+  var d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + (7 - d.getUTCDay()) % 7);   // 그 주의 일요일(주 끝)
+  return d.toISOString().slice(0, 10);
+}
+function cbWhenOptions(period) {
+  var dates = (D.index.dates || []).slice().sort();
+  var opts = [];
+  if (!dates.length) return opts;
+  if (period === "MONTHLY") {
+    var byM = {}; dates.forEach(function (d) { byM[d.slice(0, 7)] = d; });  // 그 달 마지막 수집일
+    Object.keys(byM).sort().reverse().forEach(function (m) {
+      opts.push([byM[m], m.slice(0, 4) + "년 " + (+m.slice(5, 7)) + "월 (말일 기준)"]);
+    });
+  } else if (period === "WEEKLY") {
+    var byW = {}; dates.forEach(function (d) { byW[cbSundayKey(d)] = d; });  // 그 주 마지막 수집일
+    Object.keys(byW).sort().reverse().forEach(function (sun) {
+      var e = new Date(sun + "T00:00:00Z"), s = new Date(e); s.setUTCDate(s.getUTCDate() - 6);
+      var f = function (x) { return (x.getUTCMonth() + 1) + "/" + x.getUTCDate(); };
+      opts.push([byW[sun], f(s) + "~" + f(e) + " 주 (일요일 기준)"]);
+    });
+  } else {  // DAILY, STEADY
+    dates.slice().reverse().forEach(function (d) { opts.push([d, d]); });
+  }
+  return opts;
+}
+
+// 선택 시점의 랭킹·별점수 출처. 최신이면 메모리(latest), 과거면 daily 파일.
+function cbSnapshot(when) {
+  function srcLatest() {
+    return {
+      rankings: D.latest.rankings, date: D.latest.date,
+      bookOf: function (id) { return D.latest.books[id] || (D.catalog && D.catalog[id]) || {}; },
+      rcOf: function (id) { var b = D.latest.books[id] || (D.catalog && D.catalog[id]) || {}; return b.rc || 0; }
+    };
+  }
+  function srcDaily(j) {
+    return {
+      rankings: j.rankings || {}, date: j.date || when,
+      bookOf: function (id) { return (D.catalog && D.catalog[id]) || D.latest.books[id] || {}; },
+      rcOf: function (id) {
+        var s = j.snapshots && j.snapshots[id];
+        if (s && s.rc != null) return s.rc;
+        var b = (D.catalog && D.catalog[id]) || D.latest.books[id] || {}; return b.rc || 0;
+      }
+    };
+  }
+  if (!when || when === D.index.latest_date) return Promise.resolve(srcLatest());
+  if (D.dailyCache[when]) return Promise.resolve(srcDaily(D.dailyCache[when]));
+  return softJSON("data/daily/" + when + ".json").then(function (j) {
+    if (!j) return srcLatest();
+    D.dailyCache[when] = j; return srcDaily(j);
+  });
 }
 
 function cbFiltered(works, sel) {
@@ -965,6 +1013,12 @@ function setupCombo() {
     var b = e.target.closest("button"); if (!b) return;
     CB.group = b.dataset.g; CB.sel = []; drawCombo();
   });
+  $("#cbPeriodPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    CB.period = b.dataset.p; CB.when = null; drawCombo();
+  });
+  $("#cbWhen").addEventListener("change", function () { CB.when = this.value; drawCombo(); });
+  $("#cbExcel").addEventListener("click", cbExcel);
   $("#cbSort").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     CB.sort = b.dataset.s;
@@ -986,7 +1040,9 @@ function drawCombo() {
   body.innerHTML = '<p class="empty">불러오는 중…</p>';
   Promise.all([
     D.tagIndex ? Promise.resolve(D.tagIndex) : softJSON("data/tags.json").then(function (j) { D.tagIndex = j; return j; }),
-    D.axes ? Promise.resolve(D.axes) : softJSON("data/keyword-axes.json").then(function (j) { D.axes = j; return j; })
+    D.axes ? Promise.resolve(D.axes) : softJSON("data/keyword-axes.json").then(function (j) { D.axes = j; return j; }),
+    // 과거 시점/제목·성인 표시를 위해 전체 카탈로그도 필요
+    D.catalog ? Promise.resolve(D.catalog) : softJSON("data/books.json").then(function (j) { D.catalog = j; return j; })
   ]).then(function () { renderCombo(); });
 }
 
@@ -1003,11 +1059,37 @@ function renderCombo() {
     b.dataset.g = gname; gbox.appendChild(b);
   });
 
+  // 기간 버튼 (카테고리가 제공하는 기간만)
+  var g = (groups[CB.group] || {}).parent;
+  var periods = g ? PERIOD_ORDER.filter(function (p) { return g.keys[p]; }) : [];
+  if (periods.indexOf(CB.period) < 0) CB.period = periods[0] || null;
+  var pbox = $("#cbPeriodPick"); pbox.innerHTML = "";
+  periods.forEach(function (p) {
+    var b = el("button", CB.period === p ? "on" : "", periodLabel(p));
+    b.dataset.p = p; pbox.appendChild(b);
+  });
+
+  // 시점 드롭다운
+  var opts = cbWhenOptions(CB.period);
+  var wsel = $("#cbWhen"); wsel.innerHTML = "";
+  opts.forEach(function (o) { wsel.appendChild(new Option(o[1], o[0])); });
+  var vals = opts.map(function (o) { return o[0]; });
+  if (vals.indexOf(CB.when) < 0) CB.when = vals[0] || null;
+  wsel.value = CB.when;
+
+  var body = $("#cbBody");
+  if (!D.tagIndex || !D.axes) { body.innerHTML = '<p class="empty">자료를 불러오지 못했습니다.</p>'; return; }
+  if (!cbResolveSet()) { body.innerHTML = '<p class="empty">이 분류의 키워드 분류표가 아직 없습니다.</p>'; return; }
+
+  // 선택 시점 스냅샷을 불러온 뒤 그린다
+  body.innerHTML = '<p class="empty">불러오는 중…</p>';
+  cbSnapshot(CB.when).then(function (src) { CB._src = src; cbPaint(); });
+}
+
+function cbPaint() {
   var body = $("#cbBody");
   var set = cbResolveSet();
-  if (!D.tagIndex || !D.axes) { body.innerHTML = '<p class="empty">자료를 불러오지 못했습니다.</p>'; return; }
-  if (!set) { body.innerHTML = '<p class="empty">이 분류의 키워드 분류표가 아직 없습니다.</p>'; return; }
-
+  if (!set) return;
   var all = cbBuildWorks();
   var filtered = cbFiltered(all.works, CB.sel);
 
@@ -1016,14 +1098,14 @@ function renderCombo() {
   CB.sel.forEach(function (k) {
     var s = el("span", "tag k", "#" + k + " ✕");
     s.addEventListener("click", function () {
-      CB.sel = CB.sel.filter(function (x) { return x !== k; }); renderCombo();
+      CB.sel = CB.sel.filter(function (x) { return x !== k; }); cbPaint();
     });
     chosen.appendChild(s);
   });
   if (CB.sel.length) {
     var clr = el("span", "tag", "전체해제");
     clr.style.cursor = "pointer";
-    clr.addEventListener("click", function () { CB.sel = []; renderCombo(); });
+    clr.addEventListener("click", function () { CB.sel = []; cbPaint(); });
     chosen.appendChild(clr);
   }
 
@@ -1049,7 +1131,7 @@ function renderCombo() {
       chip.addEventListener("click", function () {
         if (on) CB.sel = CB.sel.filter(function (x) { return x !== t; });
         else CB.sel = CB.sel.concat([t]);
-        renderCombo();
+        cbPaint();
       });
       kwrap.appendChild(chip);
     });
@@ -1058,21 +1140,34 @@ function renderCombo() {
   });
 
   // 강도 요약 + 결과
+  var ctx = periodLabel(CB.period) + " · " + cbWhenLabel();
   var strength = $("#cbStrength");
+  if (!all.N) {
+    strength.textContent = set.label + " · " + ctx;
+    $("#cbHead").textContent = "";
+    $("#cbBody").innerHTML = '<p class="empty">이 시점·기간에는 순위 자료가 없습니다. 다른 시점을 골라보세요.</p>';
+    return;
+  }
   if (CB.sel.length) {
     var means = filtered.map(function (w) { return w.mean; });
     var avg = means.length ? means.reduce(function (a, b) { return a + b; }, 0) / means.length : 0;
     var sumRc = filtered.reduce(function (a, w) { return a + w.rc; }, 0);
     strength.textContent = CB.sel.map(function (k) { return "#" + k; }).join(" + ")
-      + " → " + filtered.length + "작품(" + (all.N ? Math.round(filtered.length / all.N * 1000) / 10 : 0) + "%)"
-      + " · 평균 " + (Math.round(avg * 10) / 10) + "위 · 누적별점 " + num(sumRc);
+      + " → " + filtered.length + "작품(" + (Math.round(filtered.length / all.N * 1000) / 10) + "%)"
+      + " · 평균 " + (Math.round(avg * 10) / 10) + "위 · 누적별점 " + num(sumRc)
+      + "  [" + ctx + "]";
     $("#cbHead").textContent = "";
     renderComboWorks(filtered, g_firstKey());
   } else {
-    strength.textContent = CB.label || set.label + " · " + all.N + "작품에서 자주·강하게 묶이는 조합";
-    strength.textContent = set.label + " " + all.N + "작품 · 아래 키워드를 눌러 조합을 만들거나, 자동 추천 조합을 고르세요.";
+    strength.textContent = set.label + " " + all.N + "작품 · " + ctx
+      + " · 키워드를 눌러 조합을 만들거나, 아래 추천 조합을 고르세요.";
     cbAutoTop(all, set);
   }
+}
+
+function cbWhenLabel() {
+  var s = $("#cbWhen");
+  return (s && s.selectedIndex >= 0) ? s.options[s.selectedIndex].text : (CB.when || "");
 }
 
 function g_firstKey() {
@@ -1100,9 +1195,8 @@ function renderComboWorks(works, ctxKey) {
   body.appendChild(list);
 }
 
-// 자동 "강한 조합 TOP": 빈발 쌍을 순위/누적수/유의미도로 정렬
-function cbAutoTop(all, set) {
-  var body = $("#cbBody"); body.innerHTML = "";
+// 빈발 쌍 계산 (지지도 문턱 넘는 쌍) + 정렬 — 자동 TOP / 엑셀 공용
+function cbComputePairs(all, set) {
   var works = all.works, N = all.N;
   var minSup = Math.max(4, Math.round(N * 0.03));
   var cnt = {};
@@ -1118,15 +1212,20 @@ function cbAutoTop(all, set) {
       if (wk.tags.indexOf(a) >= 0 && wk.tags.indexOf(b) >= 0) { n++; sm += wk.mean; sr += wk.rc; }
     });
     if (n >= minSup) {
-      pairs.push({ set: [a, b], n: n, avg: sm / n, rc: sr,
-        lift: n * N / (cnt[a] * cnt[b]) });
+      pairs.push({ set: [a, b], n: n, avg: sm / n, rc: sr, ratio: n / N, lift: n * N / (cnt[a] * cnt[b]) });
     }
   }
-  if (!pairs.length) { body.appendChild(el("p", "empty", "조합을 뽑을 만큼 자료가 충분하지 않습니다.")); return; }
   if (CB.sort === "rc") pairs.sort(function (x, y) { return y.rc - x.rc; });
   else if (CB.sort === "lift") pairs.sort(function (x, y) { return y.lift - x.lift; });
   else pairs.sort(function (x, y) { return x.avg - y.avg; });
+  return pairs;
+}
 
+// 자동 "강한 조합 TOP": 빈발 쌍을 순위/누적수/유의미도로 정렬
+function cbAutoTop(all, set) {
+  var body = $("#cbBody"); body.innerHTML = "";
+  var pairs = cbComputePairs(all, set);
+  if (!pairs.length) { body.appendChild(el("p", "empty", "조합을 뽑을 만큼 자료가 충분하지 않습니다.")); return; }
   $("#cbHead").innerHTML = "자주·강하게 묶이는 조합 <b>" + pairs.length + "</b>개 중 상위 "
     + Math.min(30, pairs.length) + " · 조합을 누르면 작품이 나오고 키워드를 더 쌓을 수 있어요";
   pairs.slice(0, 30).forEach(function (p) {
@@ -1136,9 +1235,51 @@ function cbAutoTop(all, set) {
       p.n + "작품 · 평균 " + (Math.round(p.avg * 10) / 10) + "위 · 누적 " + num(p.rc)
       + " · 유의미 ×" + (Math.round(p.lift * 10) / 10));
     row.appendChild(names); row.appendChild(metric);
-    row.addEventListener("click", function () { CB.sel = p.set.slice(); renderCombo(); });
+    row.addEventListener("click", function () { CB.sel = p.set.slice(); cbPaint(); });
     body.appendChild(row);
   });
+}
+
+// 엑셀 내려받기 — 조합이 선택돼 있으면 그 작품들, 아니면 강한 조합 TOP 표.
+function cbExcel() {
+  if (!CB._src || !D.tagIndex) { if (typeof toast === "function") toast("자료를 먼저 불러오세요."); return; }
+  var set = cbResolveSet(); if (!set) return;
+  var all = cbBuildWorks();
+  var per = periodLabel(CB.period), when = CB.when || D.index.latest_date;
+  var rows, fname, sheet;
+  if (CB.sel.length) {
+    var works = cbFiltered(all.works, CB.sel).slice();
+    var means = works.map(function (w) { return w.mean; }), rcs = works.map(function (w) { return w.rc; });
+    var mn = Math.min.apply(null, means), mx = Math.max.apply(null, means);
+    var rn = Math.min.apply(null, rcs), rx = Math.max.apply(null, rcs);
+    works.forEach(function (w) {
+      var rk = (mx === mn) ? 1 : (mx - w.mean) / (mx - mn);
+      var rt = (rx === rn) ? 1 : (w.rc - rn) / (rx - rn);
+      w.score = 100 * (0.7 * rk + 0.3 * rt);
+    });
+    works.sort(function (a, b) { return b.score - a.score || a.mean - b.mean; });
+    rows = [["조합", CB.sel.map(function (k) { return "#" + k; }).join(" + ")],
+      ["분류", CB.group], ["기간", per], ["시점", cbWhenLabel()], ["작품 수", works.length], [],
+      ["표시순위", "제목", "작가", "해당기간순위", "별점수", "점수", "키워드"]];
+    works.forEach(function (w, i) {
+      rows.push([i + 1, w.t || "", (w.a || []).join(", "), w.mean, w.rc, Math.round(w.score), (w.tags || []).join(", ")]);
+    });
+    fname = "리디_조합_" + CB.sel.join("_") + "_" + per + "_" + when;
+    sheet = "조합 작품";
+  } else {
+    var pairs = cbComputePairs(all, set);
+    var sortName = { rank: "순위강한순", rc: "누적수많은순", lift: "유의미도순" }[CB.sort];
+    rows = [["분류", CB.group], ["기간", per], ["시점", cbWhenLabel()], ["정렬", sortName], [],
+      ["조합", "작품수", "비율(%)", "평균순위", "누적별점", "유의미도(배)"]];
+    pairs.forEach(function (p) {
+      rows.push([p.set.map(function (k) { return "#" + k; }).join(" + "),
+        p.n, Math.round(p.ratio * 1000) / 10, Math.round(p.avg * 10) / 10, p.rc, Math.round(p.lift * 100) / 100]);
+    });
+    fname = "리디_강한조합_" + CB.group + "_" + per + "_" + when;
+    sheet = "강한 조합";
+  }
+  MiniXlsx.download(rows, fname + ".xlsx", sheet);
+  if (typeof toast === "function") toast("엑셀을 내려받았습니다.");
 }
 
 /** 고른 키워드가 붙은 작품들 안에서, 함께 붙은 다른 키워드의 비율을 보여준다. */
