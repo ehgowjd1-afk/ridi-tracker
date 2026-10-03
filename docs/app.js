@@ -929,7 +929,7 @@ function cbBuildWorks() {
       tbl.ids.forEach(function (id, i) {
         var b = CB._src.bookOf(id) || {};
         if (CB.hideAdult && b.ad) return;
-        works.push({ id: id, mean: i + 1, rc: CB._src.rcOf(id), nP: 1,
+        works.push({ id: id, mean: i + 1, rc: CB._src.rcOf(id),
           t: b.t, a: b.a, x: b.x, ad: b.ad,
           tags: (books[id] || []).map(function (ti) { return dict[ti]; }) });
       });
