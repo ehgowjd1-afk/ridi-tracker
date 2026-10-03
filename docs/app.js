@@ -415,6 +415,7 @@ var KW = {
   when: null,          // 선택한 시점의 실제 날짜 (YYYY-MM-DD)
   topN: 100,
   hideAdult: false,
+  query: "",           // 키워드 검색어 (있으면 '작품 점수순' 모드)
 };
 
 function mondayOf(dateStr) {
@@ -454,6 +455,12 @@ function setupKeyword() {
   });
   $("#kwHideAdult").addEventListener("change", function () {
     KW.hideAdult = this.checked; drawKeyword();
+  });
+  var _kwT = null;
+  $("#kwSearch").addEventListener("input", function () {
+    KW.query = this.value;
+    clearTimeout(_kwT);
+    _kwT = setTimeout(drawKeyword, 200);
   });
 
   var box = $("#kwSecPick");
@@ -553,8 +560,19 @@ function drawKeyword() {
   if (UI.view !== "keyword") return;
   var t = kwTarget();
   var body = $("#kwBody");
-  if (!t || !KW.when) { body.innerHTML = '<p class="empty">고를 수 있는 자료가 없습니다.</p>'; return; }
+  if (!t) { body.innerHTML = '<p class="empty">고를 수 있는 자료가 없습니다.</p>'; return; }
 
+  // ── 검색 모드: 키워드를 치면 그 키워드 작품들을 점수순으로 ──
+  if ((KW.query || "").trim()) {
+    body.innerHTML = '<p class="empty">찾는 중…</p>';
+    (D.tagIndex ? Promise.resolve(D.tagIndex)
+      : softJSON("data/tags.json").then(function (j) { D.tagIndex = j; return j; })
+    ).then(function () { fillTagList(); renderKeywordWorks(t); });
+    return;
+  }
+
+  // ── 분포 모드(기존): 키워드가 비어 있으면 TOP N 안의 키워드 분포 ──
+  if (!KW.when) { body.innerHTML = '<p class="empty">고를 수 있는 자료가 없습니다.</p>'; return; }
   var key = t.keys[KW.period];
   var name = (KW.sub || KW.group);
   $("#kwHead").innerHTML = "<b>" + name + "</b> · " + periodLabel(KW.period)
@@ -655,6 +673,198 @@ function renderKeyword(tagIndex, daily, key, name) {
     + "%는 키워드를 확보한 " + tagged + "개 작품 대비 비율입니다. "
     + "키워드를 누르면 같이 붙는 키워드를 볼 수 있습니다.";
   body.appendChild(foot);
+}
+
+// ── 키워드 검색(작품 점수순) ──────────────────────────────
+// 자동완성 목록(datalist)을 한 번만 채운다. (키워드 2천여 개)
+function fillTagList() {
+  var dl = $("#kwTagList");
+  if (!dl || dl.childElementCount || !D.tagIndex) return;
+  var frag = document.createDocumentFragment();
+  D.tagIndex.dict.forEach(function (tg) {
+    var o = document.createElement("option");
+    o.value = tg;
+    frag.appendChild(o);
+  });
+  dl.appendChild(frag);
+}
+
+// 입력어 → 실제 키워드로 해석 (정확히 일치할 때만)
+function resolveTag(q) {
+  if (!q || !D.tagIndex) return null;
+  q = q.trim().replace(/^#/, "");
+  if (!q) return null;
+  var dict = D.tagIndex.dict;
+  if (dict.indexOf(q) >= 0) return q;
+  var qn = q.toLowerCase();
+  for (var i = 0; i < dict.length; i++) {
+    if (dict[i].toLowerCase() === qn) return dict[i];
+  }
+  return null;
+}
+
+function tagSuggestions(q, limit) {
+  var out = [];
+  if (!D.tagIndex) return out;
+  var qn = (q || "").trim().replace(/^#/, "").toLowerCase();
+  if (!qn) return out;
+  var dict = D.tagIndex.dict;
+  for (var i = 0; i < dict.length && out.length < limit; i++) {
+    if (dict[i].toLowerCase().indexOf(qn) >= 0) out.push(dict[i]);
+  }
+  return out;
+}
+
+function kwScopeLabel() { return KW.sub || KW.group; }
+
+// 키워드를 가진 작품들을 복합 점수로 정렬해 보여준다.
+//   점수 = 순위 가중평균 70% + 누적 별점수 30%
+//   순위 가중평균: 장기 기간일수록 무겁게 (월간>주간>일간 = 3:2:1,
+//                 E북은 스테디>월간>주간 = 3:2:1). 작품이 든 기간만으로 계산.
+//   정규화: 두 값 모두 결과 집합 안에서 min-max → 0~100 점.
+//   순위 기준은 '현재(latest)' — 한 스냅샷에 일·주·월이 다 들어 있다.
+function renderKeywordWorks(target) {
+  var body = $("#kwBody");
+  var head = $("#kwHead");
+  body.innerHTML = "";
+  head.textContent = "";
+
+  var tagName = resolveTag(KW.query);
+  if (!tagName) {
+    var sugg = tagSuggestions(KW.query, 30);
+    head.appendChild(el("span", "", "“" + (KW.query || "").trim() + "” 와 꼭 맞는 키워드가 없습니다."));
+    if (sugg.length) {
+      body.appendChild(el("p", "hint", "혹시 이 중에 있나요? 눌러서 선택:"));
+      var wrap = el("div", "tags");
+      sugg.forEach(function (tg) {
+        var s = el("span", "tag k", "#" + tg);
+        s.style.cursor = "pointer";
+        s.addEventListener("click", function () {
+          $("#kwSearch").value = tg; KW.query = tg; drawKeyword();
+        });
+        wrap.appendChild(s);
+      });
+      body.appendChild(wrap);
+    } else {
+      body.appendChild(el("p", "empty", "비슷한 키워드도 없습니다. 철자를 확인해 보세요."));
+    }
+    return;
+  }
+
+  var tagId = D.tagIndex.dict.indexOf(tagName);
+  var books = D.tagIndex.books;
+
+  // 선택한 분류의 기간 키들 (짧은→긴 순). 긴 기간일수록 가중치가 크다.
+  var periods = PERIOD_ORDER.filter(function (p) { return target.keys[p]; });
+  var weightOf = {};
+  periods.forEach(function (p, i) { weightOf[p] = i + 1; });   // 1,2,3...
+
+  // 각 기간 랭킹의 순위맵 (현재 기준)
+  var rankOf = {};
+  periods.forEach(function (p) {
+    var tbl = D.latest.rankings[target.keys[p]];
+    var m = {};
+    if (tbl) tbl.ids.forEach(function (id, i) { m[id] = i + 1; });
+    rankOf[p] = m;
+  });
+
+  // 후보: 이 분류 랭킹에 든 작품 중 그 키워드를 가진 것
+  var seen = {}, cand = [];
+  periods.forEach(function (p) {
+    var tbl = D.latest.rankings[target.keys[p]];
+    if (!tbl) return;
+    tbl.ids.forEach(function (id) {
+      if (seen[id]) return; seen[id] = 1;
+      var tl = books[id];
+      if (!tl || tl.indexOf(tagId) < 0) return;         // 키워드 없음
+      var b = D.latest.books[id] || {};
+      if (KW.hideAdult && b.ad) return;
+      var sumW = 0, sumWR = 0, nP = 0;
+      periods.forEach(function (pp) {
+        var r = rankOf[pp][id];
+        if (r) { sumW += weightOf[pp]; sumWR += weightOf[pp] * r; nP++; }
+      });
+      if (!nP) return;
+      cand.push({ id: id, mean: sumWR / sumW, rc: (b.rc || 0), nP: nP });
+    });
+  });
+
+  var weightDesc = periods.slice().reverse().map(function (p) {
+    return periodLabel(p) + "×" + weightOf[p];
+  }).join(" · ");
+
+  if (!cand.length) {
+    head.appendChild(el("b", "", "#" + tagName));
+    head.appendChild(document.createTextNode(" · " + kwScopeLabel() + " 범위"));
+    body.appendChild(el("p", "empty",
+      "이 범위의 현재 순위 안에 ‘#" + tagName + "’ 작품이 없습니다.\n위의 분류/장르를 넓혀 보세요 (예: 전체 웹소설)."));
+    return;
+  }
+
+  // 정규화: 순위평균은 낮을수록↑, 별점수는 많을수록↑
+  var means = cand.map(function (c) { return c.mean; });
+  var rcs = cand.map(function (c) { return c.rc; });
+  var minM = Math.min.apply(null, means), maxM = Math.max.apply(null, means);
+  var minR = Math.min.apply(null, rcs), maxR = Math.max.apply(null, rcs);
+  cand.forEach(function (c) {
+    var rankNorm = (maxM === minM) ? 1 : (maxM - c.mean) / (maxM - minM);
+    var rateNorm = (maxR === minR) ? 1 : (c.rc - minR) / (maxR - minR);
+    c.score = 100 * (0.7 * rankNorm + 0.3 * rateNorm);
+  });
+  cand.sort(function (a, b) { return b.score - a.score || a.mean - b.mean; });
+
+  var total = cand.length;
+  var shown = cand.slice(0, KW.topN || 100);
+
+  head.appendChild(el("b", "", "#" + tagName));
+  head.appendChild(document.createTextNode(
+    " · " + kwScopeLabel() + " 범위 · " + total + "작품"
+    + (total > shown.length ? " 중 상위 " + shown.length : "")));
+
+  body.appendChild(el("p", "covernote",
+    "점수 = 순위 가중평균 70% + 누적 별점수 30%. "
+    + "순위 가중치 " + weightDesc + " (장기일수록 크게). "
+    + "현재(" + D.latest.date + ") 순위 기준."));
+
+  var ctxKey = target.keys[periods[0]];
+  var list = el("ol", "booklist");
+  shown.forEach(function (c, i) { list.appendChild(workScoreRow(c, i + 1, ctxKey)); });
+  body.appendChild(list);
+}
+
+function workScoreRow(c, pos, ctxKey) {
+  var b = D.latest.books[c.id] || (D.catalog && D.catalog[c.id]) || {};
+  var li = el("li", "bookrow"); li.tabIndex = 0;
+
+  var rk = el("div", "rk");
+  rk.appendChild(el("div", "n", pos));
+  li.appendChild(rk);
+
+  var img = el("img", "cover");
+  img.loading = "lazy"; img.src = coverUrl(c.id, "small"); img.alt = "";
+  img.onerror = function () { this.style.visibility = "hidden"; };
+  li.appendChild(img);
+
+  var info = el("div", "info");
+  info.appendChild(el("div", "tt", b.t || "(제목 없음)"));
+  info.appendChild(el("div", "au", (b.a || []).join(", ")));
+  var sub = el("div", "sub");
+  sub.appendChild(el("span", "badge", "평균 " + (Math.round(c.mean * 10) / 10) + "위"));
+  sub.appendChild(el("span", "badge", "별점 " + num(c.rc)));
+  if (c.nP < 3) sub.appendChild(el("span", "badge", c.nP + "개 기간만"));
+  if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
+  if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
+  info.appendChild(sub);
+  li.appendChild(info);
+
+  var star = el("div", "star");
+  star.innerHTML = "<b>" + Math.round(c.score) + "</b>"
+    + "<br><span style='opacity:.6;font-size:.7rem'>점</span>";
+  li.appendChild(star);
+
+  li.addEventListener("click", function () { openBook(c.id, ctxKey); });
+  li.addEventListener("keydown", function (e) { if (e.key === "Enter") openBook(c.id, ctxKey); });
+  return li;
 }
 
 /** 고른 키워드가 붙은 작품들 안에서, 함께 붙은 다른 키워드의 비율을 보여준다. */

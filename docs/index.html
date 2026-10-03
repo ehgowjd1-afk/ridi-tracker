@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 
@@ -66,6 +66,11 @@
   <!-- ── 키워드 ───────────────────────────────────────── -->
   <section id="view-keyword" class="view hidden">
     <div class="controls">
+      <div class="row">
+        <input type="search" id="kwSearch" list="kwTagList"
+               placeholder="키워드로 작품 찾기 (예: 집착남) — 점수순으로 정렬">
+        <datalist id="kwTagList"></datalist>
+      </div>
       <div class="seg" id="kwSecPick"></div>
       <div class="seg" id="kwGroupPick"></div>
       <div class="row">
@@ -128,7 +133,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="xlsx.js?v=19"></script>
-<script src="app.js?v=19"></script>
+<script src="xlsx.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
