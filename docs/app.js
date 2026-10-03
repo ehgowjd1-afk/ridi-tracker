@@ -883,7 +883,9 @@ var CB_DROP_AXIS = { "뿌리를 찾아서": 1, "BL브랜드": 1, "만웹대여�
 var CB_DROP_KW = {
   "기다리면무료": 1, "만웹대여제": 1, "대여": 1, "전권대여": 1, "고화질": 1,
   "연재": 1, "완결": 1, "연재중": 1, "연재완결": 1, "단행본": 1, "단행본완결": 1,
-  "단편": 1, "단편모음": 1, "비욘드": 1
+  "단편": 1, "단편모음": 1, "비욘드": 1,
+  // 거의 모든 작품에 붙어 조합 구분에 도움이 안 되는 키워드 (현대극 같은 배경성은 유지)
+  "한국BL": 1, "소설원작": 1
 };
 function cbKeepKw(n) { return !CB_DROP_KW[n] && !/^(별점|리뷰|평점|조회)/.test(n); }
 
@@ -1154,7 +1156,7 @@ function cbPaint() {
     var sumRc = filtered.reduce(function (a, w) { return a + w.rc; }, 0);
     strength.textContent = CB.sel.map(function (k) { return "#" + k; }).join(" + ")
       + " → " + filtered.length + "작품(" + (Math.round(filtered.length / all.N * 1000) / 10) + "%)"
-      + " · 평균 " + (Math.round(avg * 10) / 10) + "위 · 누적별점 " + num(sumRc)
+      + " · 평균 " + (Math.round(avg * 10) / 10) + "위 · 별점수 " + num(sumRc)
       + "  [" + ctx + "]";
     $("#cbHead").textContent = "";
     renderComboWorks(filtered, g_firstKey());
@@ -1232,7 +1234,7 @@ function cbAutoTop(all, set) {
     var row = el("div", "cbcombo");
     var names = el("div", "cbnames", p.set.map(function (t) { return "#" + t; }).join(" + "));
     var metric = el("div", "cbmetric",
-      p.n + "작품 · 평균 " + (Math.round(p.avg * 10) / 10) + "위 · 누적 " + num(p.rc)
+      p.n + "작품 · 평균 " + (Math.round(p.avg * 10) / 10) + "위 · 별점수 " + num(p.rc)
       + " · 유의미 ×" + (Math.round(p.lift * 10) / 10));
     row.appendChild(names); row.appendChild(metric);
     row.addEventListener("click", function () { CB.sel = p.set.slice(); cbPaint(); });
@@ -1268,9 +1270,9 @@ function cbExcel() {
     sheet = "조합 작품";
   } else {
     var pairs = cbComputePairs(all, set);
-    var sortName = { rank: "순위강한순", rc: "누적수많은순", lift: "유의미도순" }[CB.sort];
+    var sortName = { rank: "순위강한순", rc: "별점수많은순", lift: "유의미도순" }[CB.sort];
     rows = [["분류", CB.group], ["기간", per], ["시점", cbWhenLabel()], ["정렬", sortName], [],
-      ["조합", "작품수", "비율(%)", "평균순위", "누적별점", "유의미도(배)"]];
+      ["조합", "작품수", "비율(%)", "평균순위", "별점수", "유의미도(배)"]];
     pairs.forEach(function (p) {
       rows.push([p.set.map(function (k) { return "#" + k; }).join(" + "),
         p.n, Math.round(p.ratio * 1000) / 10, Math.round(p.avg * 10) / 10, p.rc, Math.round(p.lift * 100) / 100]);
