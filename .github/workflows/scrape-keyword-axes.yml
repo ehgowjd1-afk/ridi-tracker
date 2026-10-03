@@ -1,0 +1,42 @@
+name: 키워드 분류 수집
+
+# 리디 키워드파인더의 키워드 분류(축)를 긁어 docs/data/keyword-axes.json 생성.
+# 가끔만 바뀌므로 수동 + 주 1회 정도.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "40 23 * * 1"   # 매주 월요일 한국시간 08:40
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 수집
+        run: python scripts/scrape_keyword_axes.py --write
+      - name: 저장(커밋)
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/keyword-axes.json
+          if git diff --staged --quiet; then
+            echo "바뀐 내용 없음."
+          else
+            git commit -m "키워드 분류(축) 수집"
+            for i in 1 2 3 4 5; do
+              if git push; then echo "저장 완료"; exit 0; fi
+              git fetch origin main; git merge -X ours origin/main -m "동시 실행 합치기" || exit 1
+            done
+            exit 1
+          fi
