@@ -13,13 +13,21 @@
         docs/data/analysis/shifts.json  순위대 변화 목록 + 프로모션 귀속(label)
 
 판별 순서
-  1. 변화 시작일 ±1일에 그 작품 이벤트·회당가 하락(가격지문)·기간한정 기다무가
-     있으면 '프로모션 동반'
+  1. 변화 시작일 근처(DAILY·WEEKLY ±1일, MONTHLY 6일 전~1일 뒤)에 그 작품 이벤트·회당가 하락(가격지문)·기간한정 기다무가
+     시작했으면 '프로모션 동반'
   2. 끝난 뒤 프로모션 없는 다음 사이클이 원래 수준이면 promo_temp(끝나고 복귀),
      유지되면 promo_kept(작품 쪽 힘 후보), 아직 진행 중이면 promo_live(판정 대기)
   3. 확인된 프로모션이 없으면 none
-  4. 하락이 프로모션 종료 다음날(DAILY)·8일째(WEEKLY)와 맞으면 promo_end
+  4. 하락이 프로모션 종료 다음날(DAILY)·8일째(WEEKLY)·31일째 무렵(MONTHLY)과 맞으면 promo_end
   시즌·완결·외전 이벤트는 content(회차 효과와 나눌 수 없음)
+  오늘의(DAILY)·주간(WEEKLY)·월간(MONTHLY) 베스트를 따로 분석하고, 항목도 기간별로 따로 낸다.
+  아직 며칠만 관측된 사이클(진행 중인 마지막 회차 등)은 관측일이 max(4, ceil(P/2)) 이상일 때만 보고,
+  관측일 n < 주기 P 이면 노이즈 σ 를 σ·sqrt(P/n) 로 키워 가짜 변화를 줄인다(부분 사이클 보정).
+
+변경 이력
+  - 2026-10-04b: MONTHLY(월간) 분석 추가, 기간 간 합치기 중단(per 별 항목), 진행 중·부분 사이클 보정
+                 (후보 관측일 하한 + σ 키움), 프로모션 반영 지연을 기간별 표(PER_LAG·PER_END_MAX·PER_UP_LEAD)로
+                 일반화, MONTHLY 하락 설명 문구. 바뀐 곳은 '[변경]'·'[추가]' 주석으로 표시(참조 구현과 같은 위치).
 
 포팅 주의 (참조 구현과 숫자를 최대한 같게 맞추려고)
   - 바이트 단위 일치는 보장하지 않는다: math.log·math.exp(러너의 glibc)와 V8 의
@@ -59,7 +67,16 @@ LN250 = math.log(250)     # 200위 밖 대치값
 DAY_MS = 86400000
 KST_MS = 9 * 3600000
 SHIFT_GROUPS = ["1600", "4250"]
-PERS = ["DAILY", "WEEKLY"]
+PERS = ["DAILY", "WEEKLY", "MONTHLY"]   # [변경] MONTHLY 추가: 시계열(랭킹×기간)마다 템플릿·시장요인·σ를 따로 추정
+# [추가] 기간별 프로모션 반영 지연. 랭킹 기간 = 직전 W일 판매 누적(DAILY 24시간, WEEKLY 7일, MONTHLY 30일 이동창).
+#   b(마지막 반영 수집일, 2장) = 종료 다음날 아침 스냅샷. 효과가 순위에서 빠지는 날:
+#   DAILY b+1(종료 다음날 뒤), WEEKLY b+6~b+7(종료+7~8일), MONTHLY b+29~b+30(종료+30~31일)
+#   PER_LAG     : post_value 비교 구간 시작 = b + PER_LAG + 1  (기존 WEEKLY 6 · DAILY 0 그대로, MONTHLY 29)
+#   PER_END_MAX : promo_end 판정 d in [b-1, b + PER_END_MAX]     (기존 DAILY 2 · WEEKLY 7 그대로, MONTHLY 30)
+#   PER_UP_LEAD : 상승 귀속 창 a in [d - PER_UP_LEAD, d + 1]   (기존 DAILY·WEEKLY 1 그대로, MONTHLY 6 — 근거는 9장 주석)
+PER_LAG = {"DAILY": 0, "WEEKLY": 6, "MONTHLY": 29}
+PER_END_MAX = {"DAILY": 2, "WEEKLY": 7, "MONTHLY": 30}
+PER_UP_LEAD = {"DAILY": 1, "WEEKLY": 1, "MONTHLY": 6}
 Z_MIN = 2.5               # 레벨 변화 크기 기준 |z|
 TOP_TARGET = 50           # shifts 대상: 기간 중 한 번이라도 50위 안
 MAX_PHASE = 14            # 톱니 템플릿 길이(경과일 0..13)
@@ -670,7 +687,7 @@ def cmp_item(a, b):
 # =====================================================================================
 # 10. 설명문(note) 도우미: 한국어 한두 문장, 숫자 포함, 해요체
 # =====================================================================================
-PER_NAME = {"DAILY": "오늘의 베스트", "WEEKLY": "주간 순위"}
+PER_NAME = {"DAILY": "오늘의 베스트", "WEEKLY": "주간 순위", "MONTHLY": "월간 순위"}   # [변경] MONTHLY 추가
 PERSIST_TXT = {   # 첫 문장 뒤에 붙는 지속성(연결형)
     "episode": {"지속": "다음 회차에도 유지됐어요.", "일시": "다음 회차엔 원래대로 돌아갔어요.",
                 "부분": "다음 회차에 일부 되돌아갔어요.", "보류": "다음 회차는 아직 못 봤어요."},
@@ -797,7 +814,7 @@ class Analyzer:
         self.SHIFT_KEYS = [g + "-" + p for g in SHIFT_GROUPS for p in PERS]
         self.RANK = {k: [None] * N for k in self.SHIFT_KEYS}   # RANK[key][n] = {id: 순위} | None
         self.promo_target_set = set()   # 웹툰 랭킹(1600~1649·4250) 200위 안에 든 작품
-        self.best50 = {}                # best50[g][id] = 기간 중 g-DAILY/WEEKLY 최고 순위
+        self.best50 = {}                # best50[g][id] = 기간 중 g-DAILY/WEEKLY/MONTHLY 최고 순위 ([변경] PERS 에 MONTHLY 가 들어가 자동 포함)
 
         for f in files:
             d = f[:10]
@@ -1093,8 +1110,41 @@ class Analyzer:
                 "sMs": self.COLL[fst["n"]], "eMs": self.COLL[lst["n"]], "ended": lst["n"] < self.LAST_N,
                 "t": "회당가 " + str(math.floor(ub + 0.5)) + "→" + str(math.floor(up + 0.5)) + "원(-" + str(pct) + "%)",
                 "k": ["가격할인"], "eid": None, "u": None, "role": None,
+                # 표시용(price_title). promo_out 이 필드를 골라 쓰므로 출력에는 안 나감
+                "_L": L, "_n": math.floor(fst["ep"] - f0 + 0.5), "_p": fst["p"],
             })
         return out
+
+    @staticmethod
+    def price_title(L, n, p, ev_title):
+        """회당가 표시: 리디 소장가는 유료 회차마다 100원 단위다. 총가격 p를 전체 회차(무료 포함)로
+        나누면 579원처럼 실제와 다른 값이 나오므로, 유료 회차 수 n = ep - f0 로 나눠 '정가 L → 할인가 D'를 보인다.
+        일부 회차만 할인이면 p = D*x + L*(n-x) 인 정수 x를 찾아 'n화 중 x화'를 붙인다.
+        할인가 후보가 여럿이면 연결된 이벤트 제목의 'N원'과 맞는 것을, 그래도 못 정하면 평균을 보인다.
+        (참조 구현 analyze_ref.js 의 priceTitle 과 같은 계산)"""
+        if not n > 0:
+            return None
+        avg = p / n
+        r100 = math.floor(avg / 100 + 0.5) * 100
+        if abs(avg - r100) < 0.5 and 0 < r100 < L:
+            return "회당가 " + str(L) + "→" + str(r100) + "원(-" + str(math.floor((1 - r100 / L) * 100 + 0.5)) + "%)"
+        m = re.search(r"([0-9]{3,4})[ ]*원", ev_title or "")
+        ev_d = int(m.group(1)) if m else None
+        cands = []
+        D = 100
+        while D < L:
+            x = (L * n - p) / (L - D)
+            xr = math.floor(x + 0.5)
+            if abs(x - xr) < 1e-6 and 1 <= xr < n:
+                cands.append((D, xr))
+            D += 100
+        pick = next((c for c in cands if c[0] == ev_d), None)
+        if pick is None and len(cands) == 1:
+            pick = cands[0]
+        if pick is not None:
+            return ("회당가 " + str(L) + "→" + str(pick[0]) + "원(-" + str(math.floor((1 - pick[0] / L) * 100 + 0.5))
+                    + "%, " + str(n) + "화 중 " + str(pick[1]) + "화)")
+        return "회당가 평균 " + str(L) + "→" + str(math.floor(avg + 0.5)) + "원(-" + str(math.floor((1 - avg / L) * 100 + 0.5)) + "%)"
 
     def build_price_promos(self):
         for bid in self.promo_targets:
@@ -1116,6 +1166,7 @@ class Analyzer:
                 if link is not None:
                     sg["eid"] = link["eid"]
                     sg["u"] = link["u"]
+                sg["t"] = self.price_title(sg["_L"], sg["_n"], sg["_p"], link["t"] if link is not None else "") or sg["t"]
                 self.add_promo(bid, sg)
 
     # ---------------------------------------------------------------------------------
@@ -1211,7 +1262,7 @@ class Analyzer:
         return ups, notices
 
     def build_items(self):
-        """6a. 대상 항목(작품×그룹): g-DAILY 또는 g-WEEKLY 에서 한 번이라도 50위 안"""
+        """6a. 대상 항목(작품×그룹): g-DAILY·g-WEEKLY·g-MONTHLY 중 하나에서 한 번이라도 50위 안 ([변경] MONTHLY 포함)"""
         N = self.N
         self.ITEMS = []
         for g in SHIFT_GROUPS:
@@ -1430,13 +1481,23 @@ class Analyzer:
         return False
 
     def find_episode_shifts(self):
-        """8a. episode(주기작 사이클): 직전 정상 사이클 최대 3개 레벨의 중앙값 B, z = (L-B)/(σ√(1+1/n))
-        변화가 이어지는 다음 사이클(같은 방향, 변화폭의 50% 이상)은 같은 변화의 연장이라 새로 잡지 않는다."""
+        """8a. episode(주기작 사이클): 직전 정상 사이클 최대 3개 레벨의 중앙값 B, z = (L-B)/(σ√(f+1/nb))
+        f = 이 사이클 레벨의 분산 배수(아래 부분 사이클 보정), nb = 기준 사이클 수. 완전한 사이클이면 f=1(기존식).
+        변화가 이어지는 다음 사이클(같은 방향, 변화폭의 50% 이상)은 같은 변화의 연장이라 새로 잡지 않는다.
+        [변경] 부분 사이클 보정. σ는 완전한 사이클(약 P일 평균)로 추정한 값이라, 관측이 며칠뿐인 사이클(진행 중인
+          마지막 사이클 등)에 그대로 쓰면 큰 분산이 반영되지 않아 가짜 변화가 무더기로 잡혔다
+          (예: 1600 10/2 업데이트작 7건, 관측 3일).
+          (1) 후보 자격: 관측일 nC >= nMin = max(4, ceil(P/2)). 모자라면 후보도 연장 판단도 하지 않고 건너뛴다(active 유지).
+          (2) nC < P 면 이 사이클 레벨 분산을 P/nC 배로 본다. 하루 잔차가 서로 독립이면 nC일 평균의 분산은 P일 평균의
+              P/nC 배. 실제로는 날짜끼리 양의 상관이 있어 배수가 1~P/nC 사이이므로 P/nC 는 가장 크게 잡은(보수적인) 값.
+              z = (L-B) / (σ·sqrt(f + 1/nb)),  f = P/nC if nC < P else 1.  기준 사이클 쪽(1/nb 항, 자격 nobs>=3)은 기존대로.
+              f=1 이면 기존 sqrt(1 + 1/nb)와 같은 부동소수 결과다(완전한 사이클의 z 는 그대로)."""
         for it in self.ITEMS:
             if it["kind"] != "periodic":
                 continue
             P = it["P"]
             cycles = it["cycles"]
+            n_min = max(4, math.ceil(P / 2))                      # [추가] 부분 사이클 후보 자격(P=7→4, P=10→5, P=11→6, P=13→7)
             for per in PERS:
                 key = it["g"] + "-" + per
                 sig = self.SIGMA[key]["sigma"]
@@ -1444,8 +1505,9 @@ class Analyzer:
                 active = None
                 for c in cycles:
                     L = c["lv"][per]
-                    if not c["phaseKnown"] or L is None or c["nobs"][per] < 3:
-                        continue
+                    n_c = c["nobs"][per]
+                    if not c["phaseKnown"] or L is None or n_c < n_min:
+                        continue                                  # [변경] 기존 nobs < 3 → n_c < n_min
                     if active is not None and jsign(L - active["B"]) == jsign(active["diff"]) \
                             and abs(L - active["B"]) >= 0.5 * abs(active["diff"]):
                         continue                                  # 연장
@@ -1455,7 +1517,8 @@ class Analyzer:
                     if not base:
                         continue
                     B = median([b["lv"][per] for b in base])
-                    z = (L - B) / (sig * math.sqrt(1 + 1 / len(base)))
+                    f = P / n_c if n_c < P else 1                 # [추가] 부분 사이클 분산 배수
+                    z = (L - B) / (sig * math.sqrt(f + 1 / len(base)))   # [변경] 기존 sqrt(1 + 1/nb)
                     if abs(z) < Z_MIN:
                         continue
                     active = {"B": B, "diff": L - B}              # 제외되더라도 연장 억제에는 쓴다
@@ -1590,7 +1653,7 @@ class Analyzer:
         return [None if v is None else v - m[n] for n, v in enumerate(y)]
 
     def find_window_shifts(self):
-        """8c. noep 창(회차 변화가 기간 내내 없는 작품, DAILY·WEEKLY): 직전 7일 vs 이후 7일
+        """8c. noep 창(회차 변화가 기간 내내 없는 작품, DAILY·WEEKLY·MONTHLY([변경] PERS 로 자동 포함)): 직전 7일 vs 이후 7일
         (직전 창 수집 4일 이상, 이후 창 3일 이상) 시장요인 뺀 ln순위 평균 차, z = diff/(σ_win√2).
         둘 다 70% 이상 200위 밖이면 건너뜀.
         σ_win = 회차 변화 없는 작품의 끝에서부터 자른 7일 블록 평균(수집 4일 이상·200위 밖 50% 미만)의
@@ -1662,8 +1725,10 @@ class Analyzer:
 
     def merge_candidates(self):
         """주기 >= 14일(격주·휴재 반복) 작품은 레벨 변화 목록에서 뺀다(가짜가 많았음) — 급등도 포함.
-        8d. 같은 작품·같은 방향·변화일 3일 이내 → 하나로. 우선순위 episode > noep 급등 > noep 창,
-        같은 종류끼리는 |z| 큰 쪽(DAILY·WEEKLY 중 더 큰 쪽이 per)"""
+        8d. 같은 작품·같은 방향·같은 기간(per)·변화일 3일 이내 → 하나로. 우선순위 episode > noep 급등 > noep 창,
+        같은 종류끼리는 |z| 큰 쪽.
+        [변경] 기간 간 합치기 중단: 화면이 기간(오늘의/주간/월간)별로 목록을 보여주므로, 같은 변화가 DAILY·WEEKLY·MONTHLY 에서
+          각각 잡히면 per 별로 한 항목씩 남긴다(조건에 m.per == c.per 추가). 정렬 기준(cmp_cand)은 기존 그대로."""
         for c in reversed(self.CANDS):
             if c["it"]["kind"] == "long":
                 self.note_excl("추정 주기 14일 이상", c["it"], c["kind"], c["per"], c["d"])
@@ -1671,22 +1736,32 @@ class Analyzer:
         self.CANDS.sort(key=functools.cmp_to_key(cmp_cand))
         self.MERGED = []
         for c in self.CANDS:
-            dup = any(m["it"]["id"] == c["it"]["id"] and m["it"]["g"] == c["it"]["g"] and m["dir"] == c["dir"]
-                      and abs(m["d"] - c["d"]) <= 3 for m in self.MERGED)
+            dup = any(m["it"]["id"] == c["it"]["id"] and m["it"]["g"] == c["it"]["g"] and m["per"] == c["per"]
+                      and m["dir"] == c["dir"] and abs(m["d"] - c["d"]) <= 3 for m in self.MERGED)   # [변경] per 일치 추가
             if not dup:
                 self.MERGED.append(c)
 
     # ---------------------------------------------------------------------------------
     # 9. 귀속(label)
-    #   상승: 변화일 ±1일에 시작한(a in [d-1, d+1]) 작품 프로모션(이벤트·가격지문·기간한정 기다무)이 있으면 '동반'.
+    #   상승: 변화일 근처에 시작한(a in [d - PER_UP_LEAD, d+1]; DAILY·WEEKLY [d-1,d+1], MONTHLY [d-6,d+1])
+    #         작품 프로모션(이벤트·가격지문·기간한정 기다무)이 있으면 '동반'.
     #     - 그중 콘텐츠 이벤트(시즌·완결·외전·연참·복귀)가 있으면 content(분리 불가)
     #     - 진행 중이 하나라도 있거나, 끝난 뒤 '프로모션 없는' 비교 구간이 없으면 promo_live
+    #       (마지막 반영일 b + PER_LAG(DAILY 0·WEEKLY 6·MONTHLY 29일)가 데이터 끝이어도 promo_live)
     #     - 비교 구간 값 post 의 유지율 (post-B)/(L-B) >= 0.5 → promo_kept, 아니면 promo_temp
     #       비교 구간: episode = 그 뒤 첫 정상 사이클(작품 프로모션과 안 겹침),
-    #                  noep = b(+6)+1 ~ +7일 중 프로모션 없는 수집일(2일 이상)
+    #                  noep = b+PER_LAG+1 ~ +7일 중 프로모션 없는 수집일(2일 이상)
     #     - 동반 프로모션 없음 → none
-    #   하락: 변화 전에 시작해(a < d-1) 끝난(ended) 프로모션에 대해 d in [b-1, b+2](DAILY) / [b-1, b+7](WEEKLY)
-    #         이면 promo_end, 아니면 14일 안에 시작한 콘텐츠 이벤트가 있으면 content, 아니면 none
+    #     [MONTHLY 상승 창 근거] 기존 WEEKLY 규칙을 정한 방식(검출된 변화일이 프로모션 시작보다 얼마나 늦게 잡히나)을 그대로 쓴다.
+    #       프로모션 판매는 시작 첫날부터 누적 합계에 들어가지만, 변화일 d는 7일 평균 비교(noep 창)나 사이클 평균(episode)으로
+    #       정해진다. WEEKLY는 7일 안에 효과가 다 쌓여 d가 시작일 ±1에 맞는다(2026-10 데이터: WEEKLY·DAILY 상승 111건 중
+    #       시작 2~6일 뒤에 잡힌 경우 0건). MONTHLY는 30일에 걸쳐 천천히 쌓여 7일 비교의 차이가 시작 며칠 뒤에 가장 커진다
+    #       (같은 데이터: MONTHLY 상승 중 5건이 시작 2~4일 뒤에 잡힘. 예: 동정의 형태 9/20 ← 회당가 할인 9/17 시작).
+    #       그래서 MONTHLY만 앞쪽을 7일 창 길이 - 1 = 6일까지 넓힌다. 7일 이상 전에 시작한 것은 붙이지 않는다
+    #       (주기 7일작의 이전 사이클 이벤트가 붙는 오귀속 방지. 예: 속죄… 9/5 회차 상승 ← 8/28 이벤트).
+    #   하락: 변화 전에 시작해(a < d-1) 끝난(ended) 프로모션의 b 에 대해 d in [b-1, b+PER_END_MAX]
+    #         (DAILY [b-1,b+2] · WEEKLY [b-1,b+7] · [추가] MONTHLY [b-1,b+30]) 이면 promo_end,
+    #         아니면 14일 안에 시작한 콘텐츠 이벤트가 있으면 content, 아니면 none
     #   플랫폼 이벤트와 books event_ids 는 귀속에 쓰지 않는다.
     # ---------------------------------------------------------------------------------
     def promo_active(self, bid, n):
@@ -1694,7 +1769,7 @@ class Analyzer:
 
     def post_value(self, c, end_b):
         it = c["it"]
-        lag = 6 if c["per"] == "WEEKLY" else 0
+        lag = PER_LAG[c["per"]]           # [변경] 기간별 표로 일반화: 기존 WEEKLY 6·DAILY 0 그대로, MONTHLY 29
         eff = end_b + lag
         if eff >= self.LAST_N:
             return None
@@ -1731,7 +1806,7 @@ class Analyzer:
         promos = self.WORK_PROMOS.get(bid, [])
         d = c["d"]
         if c["dir"] == "up":
-            acc = [p for p in promos if d - 1 <= p["a"] <= d + 1]
+            acc = [p for p in promos if d - PER_UP_LEAD[c["per"]] <= p["a"] <= d + 1]   # [변경] 기존 d - 1 <= p["a"]
             if not acc:
                 return {"label": "none", "promos": []}
             if any(p["src"] == "event" and "콘텐츠" in p["k"] for p in acc):
@@ -1745,7 +1820,7 @@ class Analyzer:
             ratio = jdiv(post["v"] - c["B"], c["L"] - c["B"])
             return {"label": "promo_kept" if ratio >= 0.5 else "promo_temp", "promos": acc, "endB": end_b,
                     "post": post, "ratio": ratio}
-        lag_max = 7 if c["per"] == "WEEKLY" else 2
+        lag_max = PER_END_MAX[c["per"]]   # [변경] 기존 7 if WEEKLY else 2 (MONTHLY 30)
         ended = [p for p in promos if p["ended"] and p["a"] < d - 1 and p["b"] - 1 <= d <= p["b"] + lag_max]
         if ended:
             return {"label": "promo_end", "promos": ended, "endB": max(p["b"] for p in ended)}
@@ -1793,10 +1868,15 @@ class Analyzer:
             s1 = (md(dates[c["d"]]) + "부터 회차 변화 없이 " + PER_NAME[c["per"]] + " 1주 평균이 "
                   + rank_txt(c["before"]) + " → " + a + ro(a) + " " + dir_w + ", " + PERSIST_TXT["noep"][c["persist"]])
         label = at["label"]
+        # [변경] MONTHLY 하락 문구: 월간은 30일 이동창이라 프로모션이 끝나고 2주~한 달 뒤에 빠진다. '직전에 끝난'은
+        #        틀린 말이 되므로 none·promo_end 두 문구만 MONTHLY 용으로 바꾼다(DAILY·WEEKLY 문구는 그대로).
+        mon = c["per"] == "MONTHLY"
         s2 = ""
         if label == "none":
             if c["dir"] == "up":
                 s2 = "같은 시기 이 작품의 이벤트·할인은 확인되지 않았어요."
+            elif mon:
+                s2 = "최근 한 달 안에 끝난 이 작품의 프로모션은 확인되지 않았어요."
             else:
                 s2 = "직전에 끝난 이 작품의 프로모션은 확인되지 않았어요."
         elif label == "content":
@@ -1811,7 +1891,11 @@ class Analyzer:
         elif label == "promo_kept":
             s2 = "겹친 프로모션: " + promo_phrase(at["promos"]) + ". 끝난 뒤에도 유지돼 작품 쪽 힘일 수 있어요."
         elif label == "promo_end":
-            s2 = "직전에 끝난 프로모션: " + promo_phrase(at["promos"]) + ". 끝나면서 내려간 것으로 보여요."
+            if mon:
+                s2 = ("앞서 있던 프로모션: " + promo_phrase(at["promos"])
+                      + ". 그 판매가 월간 집계(최근 30일)에서 빠지면서 내려간 것으로 보여요.")
+            else:
+                s2 = "직전에 끝난 프로모션: " + promo_phrase(at["promos"]) + ". 끝나면서 내려간 것으로 보여요."
         return js_trim(s1 + " " + s2)
 
     # ---------------------------------------------------------------------------------
@@ -1821,7 +1905,8 @@ class Analyzer:
     #                  t, k:[가격할인|무료|포인트|랜덤티켓|최신화|콘텐츠|론칭], eid, u, role:'main'|'mentioned'|null} ] },
     #    platform:[ {a,b,s,e,t,k,eid,u,genres:['webtoon'|'bl_webtoon']} ] }                       (a 오름차순)
     #  shifts.json { generated, window, sigma:{'1600-DAILY':σ,…}, sigma_noep:{key:{win,spike?}},
-    #    items:[ {id,t,g,ad,kind:'episode'|'noep',ep,d,dir:'up'|'down',per:'DAILY'|'WEEKLY',before,after,z(크기),
+    #      ([변경] sigma·sigma_noep 키 순서 = SHIFT_KEYS: 1600-DAILY,1600-WEEKLY,1600-MONTHLY,4250-DAILY,4250-WEEKLY,4250-MONTHLY; spike 는 DAILY 만)
+    #    items:[ {id,t,g,ad,kind:'episode'|'noep',ep,d,dir:'up'|'down',per:'DAILY'|'WEEKLY'|'MONTHLY',before,after,z(크기),
     #             persist:'지속'|'일시'|'부분'|'보류', label:'promo_live'|'promo_temp'|'promo_kept'|'promo_end'|'content'|'none',
     #             promos:[{src,t,s,e,k,eid,u}], note} ] }                                          (d 내림차순)
     # ---------------------------------------------------------------------------------
@@ -1920,6 +2005,8 @@ def summary_lines(st, wrote):
     for k in ["promo_live", "promo_temp", "promo_kept", "promo_end", "content", "none"]:
         if lab.get(k):
             lines.append("  - %s: %d" % (LABEL_KO[k], lab[k]))
+    by_per = st["by_per"]
+    lines.append("- 기간별: " + " · ".join("%s %d건" % (PER_NAME[k], by_per.get(k, 0)) for k in PERS))
     sz = st["sizes_kb"]
     lines.append("- 파일: promo.json %s KB%s · shifts.json %s KB%s" % (
         num_str(sz["promo"]), "" if wrote["promo"] else "(내용 같아 그대로 둠)",

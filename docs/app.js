@@ -27,6 +27,8 @@ var UI = {
   section: null, group: null, sub: "", period: "DAILY",
   hideAdult: false,
   moveKey: null, moveKind: "rise",
+  moveWhen: null,           // 변동 탭 '시점'에서 마지막으로 고른 값(날짜 또는 "all"). null = 기본값
+  moveSeq: 0,               // 변동 탭 그리기 차례 번호(늦게 온 이전 요청 무시용)
   shiftFilter: "all",       // 순위대 변화: all / promo / none / noep
   eventSort: "end",
   eventStatus: "ongoing",   // ongoing / ended / all
@@ -342,6 +344,79 @@ function bookRow(id, b, rank, ch, ctxKey) {
   return li;
 }
 
+// ────────────────────────────────────────── 시점(일간·주간·월간) 공용
+// 변동 탭과 조합 탭이 같은 규칙을 쓴다.
+//   일간 = 수집일 하나, 주간 = 일요일에 끝나는 주(월~일), 월간 = 달력 달.
+//   목록의 값은 그 하루/주/달의 마지막 수집일이다. 그날 스냅샷(daily/날짜.json)을 읽는다.
+
+/** 그 날짜가 든 주의 일요일(주 끝) */
+function sundayOf(dateStr) {
+  var d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + (7 - d.getUTCDay()) % 7);
+  return d.toISOString().slice(0, 10);
+}
+function addDays(dateStr, n) {
+  var d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** 그 날짜가 든 달의 말일 */
+function monthEndOf(dateStr) {
+  var d = new Date(dateStr.slice(0, 7) + "-01T00:00:00Z");
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  d.setUTCDate(0);
+  return d.toISOString().slice(0, 10);
+}
+
+/** 시점 목록 [[값(마지막 수집일), 이름], …] — 최신 것부터.
+ *  이름 괄호: 말일/일요일 기록이면 '(말일 기준)'·'(일요일 기준)', 아직 진행 중이거나 그날 기록이 없으면
+ *  실제로 쓰는 마지막 수집일 '(10/4까지)'. whenShort 의 '(10/4 기록)'과 같은 규칙이다. */
+function whenOptions(period) {
+  var dates = ((D.index && D.index.dates) || []).slice().sort();
+  var opts = [];
+  if (!dates.length) return opts;
+  if (period === "MONTHLY") {
+    var byM = {}; dates.forEach(function (d) { byM[d.slice(0, 7)] = d; });  // 그 달 마지막 수집일
+    Object.keys(byM).sort().reverse().forEach(function (m) {
+      var d = byM[m];
+      opts.push([d, m.slice(0, 4) + "년 " + (+m.slice(5, 7)) + "월 ("
+        + (d === monthEndOf(d) ? "말일 기준" : mdDay(d) + "까지") + ")"]);
+    });
+  } else if (period === "WEEKLY") {
+    var byW = {}; dates.forEach(function (d) { byW[sundayOf(d)] = d; });  // 그 주 마지막 수집일
+    Object.keys(byW).sort().reverse().forEach(function (sun) {
+      var e = new Date(sun + "T00:00:00Z"), s = new Date(e); s.setUTCDate(s.getUTCDate() - 6);
+      var f = function (x) { return (x.getUTCMonth() + 1) + "/" + x.getUTCDate(); };
+      var d = byW[sun];
+      opts.push([d, f(s) + "~" + f(e) + " 주 (" + (d === sun ? "일요일 기준" : mdDay(d) + "까지") + ")"]);
+    });
+  } else {  // DAILY, STEADY
+    dates.slice().reverse().forEach(function (d) { opts.push([d, d]); });
+  }
+  return opts;
+}
+
+/** 그 날짜가 속한 묶음의 열쇠 — 일간 '2026-09-14', 주간 그 주 일요일, 월간 '2026-09' */
+function whenBucket(period, d) {
+  if (!d) return null;
+  d = String(d).slice(0, 10);
+  if (period === "MONTHLY") return d.slice(0, 7);
+  if (period === "WEEKLY") return sundayOf(d);
+  return d;
+}
+/** 묶음 이름(짧게): '9/14' · '9/28~10/4 주' · '9월' */
+function whenSpan(period, d) {
+  if (period === "MONTHLY") return (+d.slice(5, 7)) + "월";
+  if (period === "WEEKLY") { var e = sundayOf(d); return mdDay(addDays(e, -6)) + "~" + mdDay(e) + " 주"; }
+  return mdDay(d);
+}
+/** 스냅샷 이름: 묶음 끝까지 모으기 전이면 실제 기록일을 붙인다. 예: '10월(10/4 기록)' */
+function whenShort(period, d) {
+  var span = whenSpan(period, d);
+  var end = period === "MONTHLY" ? monthEndOf(d) : (period === "WEEKLY" ? sundayOf(d) : d);
+  return d === end ? span : span + "(" + mdDay(d) + " 기록)";
+}
+
 // ────────────────────────────────────────── 변동 화면
 function setupMove() {
   var sel = $("#movePick");
@@ -358,6 +433,7 @@ function setupMove() {
   });
   UI.moveKey = sel.value;
   sel.addEventListener("change", function () { UI.moveKey = this.value; drawMove(); });
+  $("#moveWhen").addEventListener("change", function () { UI.moveWhen = this.value; drawMove(); });
   $("#moveKind").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     UI.moveKind = b.dataset.kind;
@@ -371,26 +447,199 @@ function setupMove() {
   });
 }
 
+/** 지금 고른 랭킹의 기간(DAILY/WEEKLY/MONTHLY/STEADY) */
+function movePeriod() {
+  var t = D.latest.rankings[UI.moveKey];
+  return t ? t.period : "DAILY";
+}
+
+/** '시점' 목록을 다시 채우고 실제로 고른 값을 돌려준다.
+ *  순위대 변화는 맨 위에 '전체 기간'(기본값)이 있고, 나머지는 최신 시점이 기본값이다.
+ *  기간을 바꾸면 고른 날이 든 하루/주/달로 옮긴다(예: 9/14 → 9/14~9/20 주). */
+function fillMoveWhen(isShift) {
+  var per = movePeriod();
+  var opts = whenOptions(per);
+  if (isShift) opts.unshift(["all", "전체 기간"]);
+  var sel = $("#moveWhen");
+  sel.innerHTML = "";
+  opts.forEach(function (o) { sel.appendChild(new Option(o[1], o[0])); });
+  var vals = opts.map(function (o) { return o[0]; });
+  var v = UI.moveWhen;          // 사용자가 마지막으로 고른 값(기간이 바뀌어도 그대로 둔다)
+  if (v && v !== "all" && vals.indexOf(v) < 0) {
+    var bk = whenBucket(per, v);
+    var hit = opts.filter(function (o) { return o[0] !== "all" && whenBucket(per, o[0]) === bk; })[0];
+    v = hit ? hit[0] : null;
+  }
+  if (!v || vals.indexOf(v) < 0) v = vals[0] || null;
+  if (v) sel.value = v;
+  return v;
+}
+
 function drawMove() {
   if (UI.view !== "move") return;
   var isShift = UI.moveKind === "shift";
   $("#shiftTools").classList.toggle("hidden", !isShift);
-  if (isShift) { drawShifts(); return; }
+  $("#moveWhen").closest(".field").classList.remove("hidden");
+  var when = fillMoveWhen(isShift);
+  UI.moveSeq = (UI.moveSeq || 0) + 1;    // 늦게 도착한 이전 요청이 화면을 덮지 않게
+  if (isShift) { drawShifts(when); return; }
+  drawMoveChanges(when, UI.moveSeq);
+}
+
+/** collect.py compute_changes 와 같은 규칙으로 두 시점의 순위를 비교한다.
+ *  moves = 이전 순위 − 지금 순위(양수면 상승), new = 이전에 없던 작품(이전 순위가 있을 때만),
+ *  out = 지금 없는 이전 작품, top_risers = 많이 오른 순 20개(같으면 지금 순위 순). */
+function compareRanks(ids, prevIds) {
+  function rankMap(list) {
+    var at = Object.create(null), order = [];
+    list.forEach(function (id, i) { if (!(id in at)) order.push(id); at[id] = i + 1; });
+    return { at: at, order: order };
+  }
+  var now = rankMap(ids || []), prev = rankMap(prevIds || []);
+  var hasPrev = prev.order.length > 0;
+  var moves = {}, moveList = [], newIds = [];
+  now.order.forEach(function (id) {
+    if (id in prev.at) {
+      var diff = prev.at[id] - now.at[id];
+      if (diff !== 0) { moves[id] = diff; moveList.push([id, diff]); }
+    } else if (hasPrev) {
+      newIds.push(id);
+    }
+  });
+  var out = hasPrev ? prev.order.filter(function (id) { return !(id in now.at); }) : [];
+  var risers = moveList.slice().sort(function (a, b) { return b[1] - a[1]; }).slice(0, 20);
+  return { moves: moves, new: newIds, out: out, top_risers: risers, has_prev: hasPrev };
+}
+
+/** 그날 스냅샷. 최신 날은 이미 받은 latest 를 쓰고, 지난 날은 daily 파일(한 번 받으면 캐시). */
+function snapOf(date) {
+  if (date === D.latest.date) return Promise.resolve({ date: date, rankings: D.latest.rankings });
+  return loadDaily(date);
+}
+
+// 최고 급상승 · 신규 진입 · 순위권 이탈
+//   선택 시점 S 와 목록에서 바로 앞 시점 P 의 랭킹을 비교한다
+//   (일간 = 직전 수집일, 주간 = 직전 주의 마지막 수집일, 월간 = 직전 달의 마지막 수집일).
+//   S 가 최신이고 P 가 어제 기록이면 Actions가 계산해 둔 latest.changes 를 그대로 쓴다(추가 다운로드 없음).
+var MOVE_PREV_TRIES = 3;   // 일간 비교에서 P 에 랭킹이 없을 때 더 앞 수집일로 내려가 볼 횟수
+function drawMoveChanges(S, seq) {
   var key = UI.moveKey;
   var table = D.latest.rankings[key];
-  var ch = D.latest.changes[key];
-  var list = $("#moveList");
+  var list = $("#moveList"), head = $("#moveHead");
   list.innerHTML = "";
+  if (!table) { head.textContent = ""; return; }
 
-  if (!table || !ch) { $("#moveHead").textContent = ""; return; }
-  if (!ch.has_prev) {
-    $("#moveHead").innerHTML = "<b>" + table.name + "</b> · " + periodLabel(table.period);
-    list.appendChild(el("li", "empty", "비교할 이전 기록이 없습니다.\n내일부터 변동이 표시됩니다."));
+  var per = table.period;
+  var opts = whenOptions(per);
+  var vals = opts.map(function (o) { return o[0]; });
+  var i = vals.indexOf(S);
+  var P = i >= 0 ? vals[i + 1] : null;
+  var title = "<b>" + table.name + "</b> · " + periodLabel(per);
+
+  function notice(msg) {
+    head.innerHTML = title + (S ? " · " + whenShort(per, S) : "");
+    list.innerHTML = "";
+    list.appendChild(el("li", "empty", msg));
+  }
+
+  // 수집 기록이 아직 없으면 예전처럼 latest 만으로
+  if (!S) {
+    var ch0 = D.latest.changes[key];
+    if (!ch0 || !ch0.has_prev) { notice("비교할 이전 기록이 없어요."); return; }
+    paintMoveRows(table.ids, ch0, title + " · " + mdDay(D.latest.date) + " · " + mdDay(D.latest.prev_date) + " 대비", seq);
+    return;
+  }
+  if (!P) {
+    notice("가장 이른 시점이라 비교할 이전 기록이 없어요.");
+    return;
+  }
+  var head2 = title + " · " + whenShort(per, S) + " · " + whenShort(per, P) + " 대비";
+
+  // 최신 하루 비교는 이미 계산돼 있다
+  var chL = D.latest.changes[key];
+  if (S === D.latest.date && P === D.latest.prev_date && chL && chL.has_prev) {
+    paintMoveRows(table.ids, chL, head2, seq);
     return;
   }
 
+  head.innerHTML = head2;
+  list.appendChild(el("li", "empty", "불러오는 중…"));
+  // 일간(·스테디)에서 바로 앞 수집일에 이 랭킹이 없으면(예: 직접 옮겨 적은 8/27) 그 앞 수집일로
+  // MOVE_PREV_TRIES 번까지 내려가 이 랭킹이 있는 첫 날과 비교한다. 주간·월간은 그대로 안내만 한다.
+  var dailyLike = per !== "WEEKLY" && per !== "MONTHLY";
+  var backups = dailyLike ? vals.slice(i + 2, i + 2 + MOVE_PREV_TRIES) : [];
+  function rankIn(j) {
+    var t = j && j.rankings && j.rankings[key];
+    return t && (t.ids || []).length ? t : null;
+  }
+  Promise.all([snapOf(S), snapOf(P)]).then(function (r) {
+    if (seq !== UI.moveSeq) return;
+    var sj = r[0], pj = r[1];
+    var sT = rankIn(sj);
+    if (!sj) { notice(mdDay(S) + " 기록을 불러오지 못했어요."); return; }
+    if (!sT) {
+      notice(mdDay(S) + " 기록에는 이 랭킹이 없어요." + manualNote(sj));
+      return;
+    }
+    if (!pj) { notice("비교할 이전 기록(" + mdDay(P) + ")을 불러오지 못했어요."); return; }
+    var skipped = [];
+    (function tryPrev(pDate, j, k) {
+      if (seq !== UI.moveSeq) return;
+      var pT = rankIn(j);
+      if (pT) {
+        var h = skipped.length
+          ? title + " · " + whenShort(per, S) + " · " + mdDay(pDate) + " 대비("
+            + skipped.map(mdDay).join("·") + "엔 이 랭킹이 없어요)"
+          : head2;
+        // 지난 시점이면 회차·완결·별점은 그날 값으로(선택 시점 → 비교 시점 순), 할인은 그날 값을 몰라 뺀다
+        var snaps = S === D.latest.date ? null : [sj.snapshots || {}, (j && j.snapshots) || {}];
+        paintMoveRows(sT.ids, compareRanks(sT.ids, pT.ids), h, seq, snaps);
+        return;
+      }
+      if (j && k < backups.length) {
+        skipped.push(pDate);
+        snapOf(backups[k]).then(function (nj) { tryPrev(backups[k], nj, k + 1); });
+        return;
+      }
+      if (!skipped.length) {
+        notice("비교할 이전 기록(" + mdDay(P) + ")에는 이 랭킹이 없어요." + manualNote(pj));
+      } else if (!j) {
+        notice("비교할 이전 기록(" + mdDay(pDate) + ")을 불러오지 못했어요.");
+      } else {
+        notice("비교할 이전 기록(" + mdDay(pDate) + "~" + mdDay(P) + ")에는 이 랭킹이 없어요.");
+      }
+    })(P, pj, 0);
+  });
+}
+
+/** 수동으로 옮겨 적은 날(예: 8/27)은 일부 랭킹만 있다 */
+function manualNote(j) {
+  return j && j.source === "manual" ? " 그날은 직접 옮겨 적은 기록이라 일부 랭킹만 있어요." : "";
+}
+
+/** 지난 시점의 작품 정보: 제목·작가 등은 그대로, 회차·완결·별점·별점 수는 그날 스냅샷 값으로.
+ *  snaps = [선택 시점 snapshots, 비교 시점 snapshots] — 앞에 있는 것부터 찾는다(이탈작은 비교 시점에만 있을 수 있다).
+ *  스냅샷엔 할인율이 없어 그날 할인 여부를 알 수 없으므로 할인 배지는 뺀다. */
+function bookAt(b, id, snaps) {
+  if (!snaps) return b;
+  var o = {}, k;
+  for (k in b) o[k] = b[k];
+  delete o.dc;
+  var s = null;
+  for (var i = 0; i < snaps.length && !s; i++) s = snaps[i] && snaps[i][id];
+  if (s) {
+    o.r = s.r; o.rc = s.rc; o.ep = s.ep;
+    if (s.c) o.c = 1; else delete o.c;
+  }
+  return o;
+}
+
+/** 비교 결과(ch)를 목록으로. ids = 선택 시점의 순위. 작품 정보는 latest → 없으면 전체 카탈로그.
+ *  snaps 가 있으면(지난 시점) bookAt 으로 그날 값을 씌운다. */
+function paintMoveRows(ids, ch, headHtml, seq, snaps) {
+  var list = $("#moveList"), head = $("#moveHead");
   var rankOf = {};
-  table.ids.forEach(function (id, i) { rankOf[id] = i + 1; });
+  ids.forEach(function (id, i) { rankOf[id] = i + 1; });
 
   var rows = [], label = "";
   if (UI.moveKind === "rise") {
@@ -405,21 +654,32 @@ function drawMove() {
     rows = (ch.out || []).map(function (id) { return { id: id, rank: null }; });
   }
 
-  $("#moveHead").innerHTML = "<b>" + table.name + "</b> · " + periodLabel(table.period)
-    + " · " + label + " " + rows.length + "건 (" + D.latest.prev_date + " 대비)";
-
-  var shown = 0;
-  rows.forEach(function (r) {
-    var b = D.latest.books[r.id];
-    if (!b) return;                       // 순위 밖으로 나간 작품은 오늘 정보가 없을 수 있음
-    if (UI.hideAdult && b.ad) return;
-    var fake = { moves: {}, new: [], has_prev: true };
-    if (r.isNew) fake.new = [r.id];
-    else if (r.delta) fake.moves[r.id] = r.delta;
-    list.appendChild(bookRow(r.id, b, r.rank || "–", fake, UI.moveKey));
-    shown++;
-  });
-  if (!shown) list.appendChild(el("li", "empty", "해당하는 작품이 없습니다."));
+  // 지난 시점의 작품(특히 이탈작)은 오늘 순위표에 없을 수 있다 → 그때만 전체 카탈로그를 받는다
+  var missing = rows.some(function (r) { return !D.latest.books[r.id]; });
+  var need = missing && !D.catalog;
+  if (need) {
+    head.innerHTML = headHtml;
+    list.innerHTML = "";
+    list.appendChild(el("li", "empty", "작품 정보를 불러오는 중…"));
+  }
+  (need ? softJSON("data/books.json").then(function (j) { if (j) D.catalog = j; }) : Promise.resolve())
+    .then(function () {
+      if (seq !== UI.moveSeq) return;
+      head.innerHTML = headHtml + " · " + label + " <b>" + rows.length + "</b>건";
+      list.innerHTML = "";
+      var shown = 0;
+      rows.forEach(function (r) {
+        var b = D.latest.books[r.id] || (D.catalog && D.catalog[r.id]);
+        if (!b) return;
+        if (UI.hideAdult && b.ad) return;
+        var fake = { moves: {}, new: [], has_prev: true };
+        if (r.isNew) fake.new = [r.id];
+        else if (r.delta) fake.moves[r.id] = r.delta;
+        list.appendChild(bookRow(r.id, bookAt(b, r.id, snaps), r.rank || "–", fake, UI.moveKey));
+        shown++;
+      });
+      if (!shown) list.appendChild(el("li", "empty", "해당하는 작품이 없어요."));
+    });
 }
 
 // ── 순위대 변화 ─────────────────────────────
@@ -439,21 +699,27 @@ function shiftPass(it, f) {
   return true;
 }
 
-function drawShifts() {
+// 순위대 변화는 오늘의/주간/월간 베스트마다 따로 판정돼 있다(shifts.items[].per).
+// 고른 랭킹의 그룹(g)·기간(per)이 같은 항목만, 시점을 고르면 그 하루/주/달 안에 시작(d)한 항목만 보여준다.
+function drawShifts(when) {
   var list = $("#moveList"), head = $("#moveHead");
   list.innerHTML = "";
   var key = UI.moveKey || "";
   var g = key.slice(0, key.lastIndexOf("-"));
   var table = D.latest.rankings[key];
+  var per = movePeriod();
 
   if (g !== "1600" && g !== "4250") {
     $("#shiftTools").classList.add("hidden");
+    $("#moveWhen").closest(".field").classList.add("hidden");
     head.innerHTML = table ? "<b>" + table.name + "</b> · 순위대 변화" : "";
     var li = el("li", "empty", "순위대 변화는 웹툰·BL 웹툰 전체 랭킹에서 볼 수 있어요.");
     var jump = el("div", "btnrow");
     jump.style.justifyContent = "center";
     jump.style.marginTop = "10px";
-    [["1600-DAILY", "웹툰 보기"], ["4250-DAILY", "BL 웹툰 보기"]].forEach(function (x) {
+    // 지금 기간(주간·월간)을 그대로 살려서 옮긴다. 웹툰에 없는 기간(스테디셀러)이면 오늘의 베스트로.
+    var jp = ["DAILY", "WEEKLY", "MONTHLY"].indexOf(per) >= 0 ? per : "DAILY";
+    [["1600-" + jp, "웹툰 보기"], ["4250-" + jp, "BL 웹툰 보기"]].forEach(function (x) {
       if (!D.latest.rankings[x[0]]) return;
       var b = el("button", "btn", x[1]);
       b.addEventListener("click", function () {
@@ -475,9 +741,12 @@ function drawShifts() {
     return;
   }
 
-  var mine = (D.shifts.items || []).filter(function (it) {
-    return it.g === g && !(UI.hideAdult && it.ad);
+  var all = !when || when === "all";
+  var bk = all ? null : whenBucket(per, when);
+  var inRange = (D.shifts.items || []).filter(function (it) {
+    return it.g === g && it.per === per && (all || whenBucket(per, it.d) === bk);
   });
+  var mine = inRange.filter(function (it) { return !(UI.hideAdult && it.ad); });
   // 필터 버튼에 건수를 같이 적는다
   Array.prototype.forEach.call($("#shiftFilter").children, function (b) {
     var f = b.dataset.f, n = 0;
@@ -489,8 +758,10 @@ function drawShifts() {
   var rows = mine.filter(function (it) { return shiftPass(it, UI.shiftFilter); });
 
   var win = D.shifts.window || [];
-  head.innerHTML = "<b>" + (table ? table.name : g) + "</b> · 순위대 변화 <b>" + rows.length + "</b>건"
-    + (win.length === 2 ? " · " + mdDay(win[0]) + "~" + mdDay(win[1]) + " 기록 기준" : "")
+  head.innerHTML = "<b>" + (table ? table.name : g) + "</b> · " + periodLabel(per)
+    + " · 순위대 변화 <b>" + rows.length + "</b>건"
+    + (all ? (win.length === 2 ? " · " + mdDay(win[0]) + "~" + mdDay(win[1]) + " 기록 기준" : "")
+           : " · " + whenSpan(per, when) + "에 시작한 변화")
     + " · 최근 것부터";
 
   if (!(D.shifts.items || []).length) {
@@ -498,7 +769,11 @@ function drawShifts() {
     return;
   }
   rows.forEach(function (it) { list.appendChild(shiftRow(it)); });
-  if (!rows.length) list.appendChild(el("li", "empty", "해당하는 작품이 없어요."));
+  if (!rows.length) {
+    list.appendChild(el("li", "empty", !all && !inRange.length
+      ? "이 시점에 시작한 순위대 변화가 없어요. 다른 시점이나 ‘전체 기간’을 골라 보세요."
+      : (!mine.length && inRange.length ? "성인 작품을 숨겨서 보이는 작품이 없어요." : "해당하는 작품이 없어요.")));
+  }
 }
 
 function shiftRow(it) {
@@ -589,7 +864,9 @@ function shiftLine(it) {
   var line = el("div", "sline");
   line.appendChild(document.createTextNode(shiftLead(it, false)));
   line.appendChild(el("span", "arr " + (it.dir === "down" ? "down" : "up"), it.dir === "down" ? "▼" : "▲"));
-  var per = it.per === "DAILY" ? "오늘의 베스트" : (it.kind === "episode" ? "주간" : "주간 순위");
+  // 회차형은 '주간 평균 …', 회차 없는 창은 '주간 순위 1주 평균 …' (월간도 같은 꼴)
+  var nm = it.per === "MONTHLY" ? "월간" : "주간";
+  var per = it.per === "DAILY" ? "오늘의 베스트" : (it.kind === "episode" ? nm : nm + " 순위");
   line.appendChild(document.createTextNode(" " + per + " " + shiftNums(it)));
   return line;
 }
@@ -1126,33 +1403,8 @@ function cbBuildWorks() {
   return out;
 }
 
-// 시점(날짜/주/월) 목록. 일간=하루마다, 주간=일요일 기준, 월간=말일 기준.
-function cbSundayKey(dateStr) {
-  var d = new Date(dateStr + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + (7 - d.getUTCDay()) % 7);   // 그 주의 일요일(주 끝)
-  return d.toISOString().slice(0, 10);
-}
-function cbWhenOptions(period) {
-  var dates = (D.index.dates || []).slice().sort();
-  var opts = [];
-  if (!dates.length) return opts;
-  if (period === "MONTHLY") {
-    var byM = {}; dates.forEach(function (d) { byM[d.slice(0, 7)] = d; });  // 그 달 마지막 수집일
-    Object.keys(byM).sort().reverse().forEach(function (m) {
-      opts.push([byM[m], m.slice(0, 4) + "년 " + (+m.slice(5, 7)) + "월 (말일 기준)"]);
-    });
-  } else if (period === "WEEKLY") {
-    var byW = {}; dates.forEach(function (d) { byW[cbSundayKey(d)] = d; });  // 그 주 마지막 수집일
-    Object.keys(byW).sort().reverse().forEach(function (sun) {
-      var e = new Date(sun + "T00:00:00Z"), s = new Date(e); s.setUTCDate(s.getUTCDate() - 6);
-      var f = function (x) { return (x.getUTCMonth() + 1) + "/" + x.getUTCDate(); };
-      opts.push([byW[sun], f(s) + "~" + f(e) + " 주 (일요일 기준)"]);
-    });
-  } else {  // DAILY, STEADY
-    dates.slice().reverse().forEach(function (d) { opts.push([d, d]); });
-  }
-  return opts;
-}
+// 시점(날짜/주/월) 목록은 변동 탭과 같이 쓰는 whenOptions() — 일간=하루마다, 주간=일요일 기준, 월간=말일 기준
+// (진행 중인 주·달은 마지막 수집일 기준이라 이름이 '(10/4까지)'처럼 붙는다).
 
 // 선택 시점의 랭킹·별점수 출처. 최신이면 메모리(latest), 과거면 daily 파일.
 function cbSnapshot(when) {
@@ -1256,7 +1508,7 @@ function renderCombo() {
   });
 
   // 시점 드롭다운
-  var opts = cbWhenOptions(CB.period);
+  var opts = whenOptions(CB.period);
   var wsel = $("#cbWhen"); wsel.innerHTML = "";
   opts.forEach(function (o) { wsel.appendChild(new Option(o[1], o[0])); });
   var vals = opts.map(function (o) { return o[0]; });
@@ -2044,13 +2296,22 @@ function rankTrendCard(id, months, ctxKey, extra) {
       : "";
   }
 
-  // 이 그래프엔 ▲/▼가 없는데 다른 랭킹·기간 그래프에는 있으면 어디서 보는지 알려 준다
+  // 이 그래프엔 ▲/▼가 없는데 다른 랭킹·기간 그래프에는 있으면 어디서 보는지 모두 알려 준다
+  // (판정은 오늘의/주간/월간마다 따로라 여러 그래프에 나뉘어 있을 수 있다). 순서는 버튼 순서대로.
   function marksElsewhere() {
     var sh = extra.shifts || [];
     if (!sh.length || sh.some(function (it) { return it.per === state.period && it.g === state.cat; })) return "";
-    var it = sh.filter(function (x) { return byCat[x.g] && byCat[x.g][x.per]; })[0];
-    if (!it) return "";
-    return " · ▲▼ 순위대 변화는 '" + labels[it.g].name + " " + periodLabel(it.per) + "' 그래프에 표시해요";
+    var names = [];
+    cats.forEach(function (c) {
+      PERIOD_ORDER.forEach(function (p) {
+        if (!byCat[c][p]) return;
+        if (sh.some(function (x) { return x.g === c && x.per === p; })) {
+          names.push("'" + labels[c].name + " " + periodLabel(p) + "'");
+        }
+      });
+    });
+    if (!names.length) return "";
+    return " · ▲▼ 순위대 변화는 " + names.join("·") + " 그래프에 표시해요";
   }
 
   // 랭킹이 둘 이상일 때만 '어느 랭킹으로 볼지' 버튼을 보인다.
@@ -2346,7 +2607,7 @@ var SHIFT_LABEL = {
   promo_kept: { t: "프로모션 후에도 유지", c: "promo",
     tip: "프로모션이 끝난 뒤에도 바뀐 순위대가 이어졌어요. 작품 쪽 힘일 수 있어요." },
   promo_end: { t: "프로모션 종료로 하락", c: "end",
-    tip: "프로모션이 끝난 바로 다음(주간은 8일째)에 내려갔어요." },
+    tip: "프로모션 판매가 순위 집계에서 빠지면서 내려갔어요. 오늘의 베스트는 끝난 다음 날, 주간은 8일째, 월간은 한 달쯤 뒤에 빠져요." },
   content: { t: "시즌·완결 이벤트와 겹침", c: "content",
     tip: "시즌 시작·완결·외전 같은 이벤트와 겹쳐서 회차 효과와 나눌 수 없어요." },
   none: { t: "확인된 프로모션 없음", c: "none",
@@ -2411,14 +2672,16 @@ function promoCard(promos, shifts) {
   }
   card.appendChild(h);
 
-  // 파일은 최근 것부터지만, 한 작품 안에서는 일어난 순서대로 읽는 게 자연스럽다
-  shifts.slice().sort(function (x, y) { return x.d < y.d ? -1 : x.d > y.d ? 1 : 0; }).forEach(function (it) {
+  // 파일은 최근 것부터지만, 한 작품 안에서는 일어난 순서대로 읽는 게 자연스럽다.
+  // 같은 날이면 오늘의 → 주간 → 월간 순(기간마다 따로 판정한 항목이 각각 있다).
+  shifts.slice().sort(function (x, y) {
+    return x.d < y.d ? -1 : x.d > y.d ? 1 : PERIOD_ORDER.indexOf(x.per) - PERIOD_ORDER.indexOf(y.per);
+  }).forEach(function (it) {
     var v = el("div", "verdict");
     var top = el("div", "vtop");
     top.appendChild(shiftLabelChip(it));
-    var per = it.per === "DAILY" ? "오늘의 베스트" : "주간 베스트";
     top.appendChild(el("span", "vwhen " + (it.dir === "down" ? "down" : "up"),
-      (it.dir === "down" ? "▼ " : "▲ ") + mdDay(it.d) + " · " + per));
+      (it.dir === "down" ? "▼ " : "▲ ") + mdDay(it.d) + " · " + periodLabel(it.per)));
     var pc = persistChip(it);
     if (pc) top.appendChild(pc);
     v.appendChild(top);

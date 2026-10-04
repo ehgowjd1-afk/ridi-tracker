@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 
@@ -54,6 +54,10 @@
       <div class="row">
         <select id="movePick" aria-label="랭킹 선택"></select>
       </div>
+      <!-- 시점: 고른 랭킹의 기간(오늘의/주간/월간)에 맞춰 날짜·주·달 목록을 app.js가 채웁니다 -->
+      <div class="row">
+        <label class="field"><span>시점</span><select id="moveWhen" aria-label="시점"></select></label>
+      </div>
       <div class="seg small" id="moveKind">
         <button data-kind="rise" class="on">최고 급상승</button>
         <button data-kind="new">신규 진입</button>
@@ -66,11 +70,12 @@
       <details class="howto">
         <summary>업데이트 주기 톱니를 빼고, 평소 순위대가 바뀐 순간만 모았어요</summary>
         <ol>
-          <li><b>①</b> 변화가 시작된 날 앞뒤 하루 안에 그 작품의 이벤트·할인·기간 한정 기다무가 있었는지 봐요.</li>
+          <li><b>①</b> 변화가 시작된 날 앞뒤 하루 안에(월간은 6일 전부터) 그 작품의 이벤트·할인·기간 한정 기다무가 있었는지 봐요.</li>
           <li><b>②</b> 있었다면 끝난 뒤를 봐요. 원래대로 돌아가면 ‘프로모션 끝나고 복귀’, 그대로면 ‘프로모션 후에도 유지’예요.</li>
           <li><b>③</b> 이벤트·할인이 없는데 다음 회차까지 이어지면 ‘확인된 프로모션 없음’이에요. 작품 자체의 힘일 수 있어요.</li>
-          <li><b>④</b> 프로모션이 끝난 다음 날(주간은 8일째) 떨어졌으면 ‘프로모션 종료로 하락’이에요.</li>
+          <li><b>④</b> 프로모션이 끝난 다음 날(주간은 8일째, 월간은 한 달 안) 떨어졌으면 ‘프로모션 종료로 하락’이에요.</li>
         </ol>
+        <p>오늘의/주간/월간 베스트마다 따로 판정해요. 주간은 7일·월간은 30일 누적이라 프로모션 효과가 늦게 빠져요.</p>
         <p>휴재·몰아 공개·신작 런칭 직후는 뺐어요. 시즌·완결 이벤트와 겹치면 회차 효과와 나눌 수 없어요. 배너·추천 노출은 데이터에 없어요.</p>
       </details>
       <div class="seg small" id="shiftFilter">
@@ -178,7 +183,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="xlsx.js?v=25"></script>
-<script src="app.js?v=25"></script>
+<script src="xlsx.js?v=26"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>
