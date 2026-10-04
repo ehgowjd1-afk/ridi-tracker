@@ -42,18 +42,19 @@
   "2026-09-30",
   "2026-10-01",
   "2026-10-02",
-  "2026-10-03"
+  "2026-10-03",
+  "2026-10-04"
  ],
  "months": [
   "2026-08",
   "2026-09",
   "2026-10"
  ],
- "updated_at": "2026-10-03T11:17:50+09:00",
- "latest_date": "2026-10-03",
- "book_count": 12911,
+ "updated_at": "2026-10-04T11:57:31+09:00",
+ "latest_date": "2026-10-04",
+ "book_count": 12857,
  "ranking_count": 189,
- "event_count": 571,
+ "event_count": 563,
  "sections": {
   "webnovel": "웹소설",
   "ebook": "E북 단행본",
@@ -67,7 +68,7 @@
  },
  "last_run": {
   "requests": 474,
-  "seconds": 1354.8,
+  "seconds": 1348.4,
   "failures": [],
   "reviews": {
    "books": 0,
@@ -76,5 +77,5 @@
   "details": 200,
   "rate_limit_hits": 0
  },
- "ended_count": 3783
+ "ended_count": 3803
 }
