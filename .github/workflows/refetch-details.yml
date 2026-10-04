@@ -1,0 +1,100 @@
+name: 키워드 복구 (상세 다시 받기)
+
+# 2026-09-08 ~ 10-04에 리디 상세페이지 구조가 바뀐 걸 몰라서, 그 사이 상세를 받은
+# 작품 약 5,400종의 키워드·리뷰 ID·독점 표시가 비어 있습니다. 그 작품들만 다시 받습니다.
+# (대상 기간은 scripts/ridi/config.py 의 BROKEN_DETAIL_WINDOW, 상위권부터)
+#
+# ▶ 리디 차단(429)을 피하려고 5초 간격, 한 회차 300건, 하루 4회(최대 1,200건)만 돕니다.
+#   다 채우면 대상이 0건이 되어 아무 것도 바꾸지 않고 끝납니다.
+#   REFETCH_UNTIL 날짜가 지나면 예약 실행도 바로 끝나니, 그 뒤에 이 파일을 지우세요.
+# ▶ 성인 인증 페이지(일부 성인 작품)는 로그인 없이는 읽을 게 없어 비어 있는 채로 남습니다.
+on:
+  schedule:
+    # 매일 수집(한국시간 08:15, 예비 10:15·13:15)과 겹치지 않는 시각
+    - cron: "40 6 * * *"      # 한국시간 15:40
+    - cron: "40 11 * * *"     # 한국시간 20:40
+    - cron: "40 16 * * *"     # 한국시간 01:40
+    - cron: "40 19 * * *"     # 한국시간 04:40
+  workflow_dispatch:
+    inputs:
+      max_details:
+        description: "이번 회차에 다시 받을 작품 수"
+        type: string
+        default: "300"
+      max_reviews:
+        description: "리뷰도 같이 받을 작품 수 (0이면 안 받음)"
+        type: string
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect            # 매일 돌아가는 수집과 겹치지 않게 같은 그룹
+  cancel-in-progress: false
+
+env:
+  REFETCH_UNTIL: "2026-10-14"
+
+jobs:
+  refetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 오늘 돌 날인지 확인
+        id: gate
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%F)
+          echo "오늘(한국시간): $TODAY / 마감: $REFETCH_UNTIL"
+          if [[ "$TODAY" > "$REFETCH_UNTIL" ]]; then
+            echo "run=no" >> $GITHUB_OUTPUT
+            echo "마감일이 지나 건너뜁니다."
+          else
+            echo "run=yes" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 저장소 내려받기
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 순위·이벤트는 건드리지 않고 '작품 상세'만 다시 받습니다.
+      # 연속으로 막히면(429) 수집기가 스스로 그 회차를 접습니다.
+      - name: 상세 다시 받기
+        if: steps.gate.outputs.run == 'yes'
+        timeout-minutes: 40
+        env:
+          MAXD: ${{ inputs.max_details || '300' }}
+          MAXR: ${{ inputs.max_reviews || '0' }}
+        run: |
+          ARGS="--skip-rankings --skip-events --refetch-broken --interval 5 --max-details $MAXD --max-reviews $MAXR"
+          echo "실행 옵션: $ARGS"
+          python scripts/collect.py $ARGS
+
+      - name: 결과 저장(커밋)
+        if: always() && steps.gate.outputs.run == 'yes'
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          git commit -m "키워드 복구: $(TZ=Asia/Seoul date '+%m-%d %H시')"
+          # 다른 수집과 겹쳐 원격이 먼저 바뀌었을 수 있다.
+          # 충돌하면 방금 모은 우리 파일을 우선으로 합친다 (모은 것을 잃지 않기 위해).
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git fetch origin main
+            git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || exit 1
+          done
+          echo "여러 번 시도했지만 저장하지 못했습니다."
+          exit 1

@@ -185,12 +185,35 @@ def pick_detail_targets(meta, books, tables, limit, section=None):
     return picked
 
 
-def pick_review_targets(meta, books, tables, limit):
+def pick_refetch_targets(store, meta, books, tables, limit):
+    """리디 페이지 구조가 바뀐 동안(config.BROKEN_DETAIL_WINDOW) 상세를 받아서
+    키워드를 못 읽은 작품을 상위권부터 고른다. 반환: (고른 작품, 남은 대상 전체 수)"""
+    start, end = config.BROKEN_DETAIL_WINDOW
+    ranks = best_ranks(tables)
+    sub_ranks = best_ranks(tables, only_main=False)
+
+    found = []
+    for bid, seen in meta.get("details", {}).items():
+        if seen < start[:10] or bid not in books:
+            continue
+        saved = store.read("books", f"{bid}.json", default={}) or {}
+        fetched = saved.get("detail_fetched_at") or ""
+        if saved.get("keywords") or not (start <= fetched < end):
+            continue
+        found.append((ranks.get(bid) or sub_ranks.get(bid) or 9999, bid))
+    found.sort()
+    return [bid for _, bid in found[:limit]], len(found)
+
+
+def pick_review_targets(meta, books, tables, limit, cell_of):
     """리뷰를 가져올 작품을 고른다 — 오래 안 본 것 + 상위권 위주.
 
     이미 상세페이지를 한 번 열어본 작품만 고른다. 리뷰를 읽으려면 상세페이지에서
     얻는 '리뷰 셀 ID'가 필요한데, 리뷰 때문에 무거운 상세페이지를 또 여는 순간
     리디가 요청 과다로 막아버리기 때문이다. (2026-08-22에 실제로 막혔음)
+
+    셀 ID가 없는 작품은 아예 후보에서 뺀다. 빼지 않으면 리뷰를 한 번도 안 본(=맨 앞에 서는)
+    셀 ID 없는 작품이 상한을 다 차지해서, 정작 리뷰는 0건이 된다. (2026-09-08~10-04)
     """
     ranks = best_ranks(tables)          # 전체 랭킹 기준 (e북에는 '오늘의 베스트'가 없다)
     seen = meta.get("reviews", {})
@@ -198,7 +221,7 @@ def pick_review_targets(meta, books, tables, limit):
 
     scored = []
     for bid, rank in ranks.items():
-        if bid not in books or bid not in details_seen:
+        if bid not in books or bid not in details_seen or not cell_of(bid):
             continue
         scored.append((seen.get(bid, ""), rank, bid))
     scored.sort()  # 한 번도 안 본 것("") 먼저, 그 다음 오래된 것, 그 안에서 상위권
@@ -222,6 +245,9 @@ def main():
     ap.add_argument("--detail-section", default=None,
                     choices=list(config.CATEGORY_TREE.keys()),
                     help="이 분류의 작품 상세만 채운다 (webnovel / ebook / webtoon)")
+    ap.add_argument("--refetch-broken", action="store_true",
+                    help="리디 페이지 구조가 바뀐 동안(config.BROKEN_DETAIL_WINDOW) "
+                         "키워드를 못 읽은 작품의 상세만 다시 받는다")
     ap.add_argument("--max-details", type=int, default=config.MAX_DETAIL_FETCHES_PER_RUN)
     ap.add_argument("--max-reviews", type=int, default=config.MAX_REVIEW_FETCHES_PER_RUN)
     args = ap.parse_args()
@@ -337,12 +363,22 @@ def main():
     detail_map = {}
     saved_details = set()          # 이번 실행 중 이미 파일로 적어둔 작품
     if not args.skip_details and args.max_details > 0:
-        picked = pick_detail_targets(meta, books, tables, args.max_details,
-                                     section=args.detail_section)
-        where = f" [{config.CATEGORY_TREE[args.detail_section]['label']}만]" if args.detail_section else ""
-        print(f"\n[4/5] 작품 상세 수집{where} — {len(picked)}건 (이번 회차 상한 {args.max_details})")
+        if args.refetch_broken:
+            picked, remaining = pick_refetch_targets(store, meta, books, tables, args.max_details)
+            print(f"\n[4/5] 작품 상세 다시 받기 [키워드 복구] — {len(picked)}건 "
+                  f"(남은 대상 {remaining}건, 이번 회차 상한 {args.max_details})")
+        else:
+            picked = pick_detail_targets(meta, books, tables, args.max_details,
+                                         section=args.detail_section)
+            where = f" [{config.CATEGORY_TREE[args.detail_section]['label']}만]" if args.detail_section else ""
+            print(f"\n[4/5] 작품 상세 수집{where} — {len(picked)}건 (이번 회차 상한 {args.max_details})")
         blocked_in_a_row = 0
         for i, bid in enumerate(picked, 1):
+            # 순위를 새로 안 받은 회차는 작품 정보가 카탈로그뿐이라 원작자·역자 이름이 없다.
+            # 저장된 상세에서 가져와야 태그에서 걸러진다.
+            if bid in books and not books[bid].get("authors_full"):
+                saved = store.read("books", f"{bid}.json", default={}) or {}
+                books[bid]["authors_full"] = saved.get("authors_full") or []
             d = details.fetch_detail(client, bid)
             d["fetched_at"] = now_kst()
             detail_map[bid] = d
@@ -368,7 +404,8 @@ def main():
                     meta["files"][bid] = 1
                     saved_details.add(bid)
                 title = books.get(bid, {}).get("title", bid)[:24]
-                print(f"  [{i}/{len(picked)}] {title:<26} 태그 {len(tags)}개 / 이벤트 {len(d['event_ids'])}개")
+                note = " (성인 인증 페이지라 못 읽음)" if d.get("adult_gate") else ""
+                print(f"  [{i}/{len(picked)}] {title:<26} 태그 {len(tags)}개 / 이벤트 {len(d['event_ids'])}개{note}")
             if i % 25 == 0:
                 save_progress(store, meta, f"상세 {i}건까지")
     else:
@@ -377,21 +414,26 @@ def main():
     # --- 5. 리뷰 ---
     review_stats = {"books": 0, "added": 0}
     if not args.skip_reviews and args.max_reviews > 0:
-        picked = pick_review_targets(meta, books, tables, args.max_reviews)
-        print(f"\n[5/5] 리뷰 수집 — {len(picked)}작품 (작품당 최대 {config.REVIEWS_PER_BOOK}건)")
-        skipped = 0
-        for i, bid in enumerate(picked, 1):
-            # 리뷰를 읽으려면 상세페이지에서 얻은 '리뷰 셀 ID'가 필요하다.
-            # 여기서는 이미 저장해 둔 것만 쓴다 — 리뷰 때문에 상세페이지를 새로 열면
-            # 요청이 두 배가 되어 리디가 막아버린다.
-            cell_id = (detail_map.get(bid) or {}).get("review_cell_id")
-            if not cell_id:
-                saved = store.read("books", f"{bid}.json", default={}) or {}
-                cell_id = saved.get("review_cell_id")
-            if not cell_id:
-                skipped += 1
-                continue
+        # 리뷰를 읽으려면 상세페이지에서 얻은 '리뷰 셀 ID'가 필요하다.
+        # 여기서는 이미 저장해 둔 것만 쓴다 — 리뷰 때문에 상세페이지를 새로 열면
+        # 요청이 두 배가 되어 리디가 막아버린다.
+        cells = {}
 
+        def cell_of(bid):
+            if bid not in cells:
+                cid = (detail_map.get(bid) or {}).get("review_cell_id")
+                if not cid:
+                    saved = store.read("books", f"{bid}.json", default={}) or {}
+                    cid = saved.get("review_cell_id")
+                cells[bid] = cid
+            return cells[bid]
+
+        picked = pick_review_targets(meta, books, tables, args.max_reviews, cell_of)
+        no_cell = sum(1 for bid in cells if not cells[bid])
+        print(f"\n[5/5] 리뷰 수집 — {len(picked)}작품 (작품당 최대 {config.REVIEWS_PER_BOOK}건)"
+              + (f" / 리뷰 ID를 아직 몰라서 뺀 작품 {no_cell}건" if no_cell else ""))
+        for i, bid in enumerate(picked, 1):
+            cell_id = cell_of(bid)
             fresh = reviews_mod.fetch_reviews(client, bid, cell_id)
             meta["reviews"][bid] = date
             if not fresh:
@@ -417,8 +459,7 @@ def main():
             print(f"  [{i}/{len(picked)}] {title:<26} 새 리뷰 {added:>3}건 (누적 {len(merged)})")
             if review_stats["books"] % 25 == 0:
                 save_progress(store, meta, f"리뷰 {review_stats['books']}작품까지")
-        print(f"  → {review_stats['books']}작품 / 새 리뷰 {review_stats['added']}건"
-              + (f" (리뷰 ID를 아직 몰라서 건너뜀 {skipped}건)" if skipped else ""))
+        print(f"  → {review_stats['books']}작품 / 새 리뷰 {review_stats['added']}건")
     else:
         print("\n[5/5] 리뷰 건너뜀")
 

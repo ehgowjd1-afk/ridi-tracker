@@ -12,12 +12,29 @@ import re
 from . import config
 from .client import RateLimited, RidiError
 
-_PREPARED_RE = re.compile(
-    r'<script[^>]+id="ISLANDS__PreparedData"[^>]*>(.*?)</script>',
+# 상세페이지 데이터가 담긴 스크립트.
+# 2026-09-08쯤 리디가 페이지를 바꾸면서 ISLANDS__PreparedData → __NEXT_DATA__ 로 옮겨갔다.
+# 안쪽 grid(키워드·셀 목록) 구조는 그대로라, 둘 다 찾아본다.
+_DATA_SCRIPT_RE = re.compile(
+    r'<script[^>]+id="(?:__NEXT_DATA__|ISLANDS__PreparedData)"[^>]*>(.*?)</script>',
     re.DOTALL,
 )
+# 위 스크립트를 못 찾았을 때의 마지막 수단 — 원본 HTML에 키워드 배열이 그대로 들어 있다.
+_KEYWORDS_RE = re.compile(r'"keywords":(\[[^\]]*\])')
 _EVENT_LINK_RE = re.compile(r'href="/event/(\d+)')
-_EXCLUSIVE_TITLE_RE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
+# <title data-next-head=""> 처럼 속성이 붙어 나오므로 속성까지 허용한다.
+_EXCLUSIVE_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL)
+
+
+def _find_grid(data):
+    """페이지 데이터에서 grid를 꺼낸다 (새 구조 → 옛 구조 순)."""
+    props = data.get("props") or {}
+    new_holder = (props.get("pageProps") or {}).get("sectionProps")
+    for holder in (new_holder, props):
+        grid = (((holder or {}).get("gridQuery") or {}).get("riGrid") or {}).get("grid")
+        if grid:
+            return grid
+    return {}
 
 
 def fetch_detail(client, book_id):
@@ -40,21 +57,33 @@ def fetch_detail(client, book_id):
     }
 
     # --- 태그/키워드 + 리뷰 셀 ID ---
-    m = _PREPARED_RE.search(html)
-    if m:
+    for m in _DATA_SCRIPT_RE.finditer(html):
         try:
-            prepared = json.loads(m.group(1))
+            data = json.loads(m.group(1))
         except json.JSONDecodeError:
-            prepared = None
-        if prepared:
-            grid = (((prepared.get("props") or {}).get("gridQuery") or {})
-                    .get("riGrid") or {}).get("grid") or {}
-            meta = ((grid.get("meta") or {}).get("gridPageMeta") or {})
-            result["keywords"] = [k for k in (meta.get("keywords") or []) if k]
-            for cell in grid.get("cells") or []:
-                if cell.get("type") == "BookDetailHomeReview":
-                    result["review_cell_id"] = cell.get("id")
-                    break
+            continue
+        grid = _find_grid(data)
+        if not grid:
+            continue
+        meta = ((grid.get("meta") or {}).get("gridPageMeta") or {})
+        result["keywords"] = [k for k in (meta.get("keywords") or []) if k]
+        for cell in grid.get("cells") or []:
+            if cell.get("type") == "BookDetailHomeReview":
+                result["review_cell_id"] = cell.get("id")
+                break
+        break
+
+    # 2026-09 이후 일부 성인 작품은 로그인(성인 인증) 안내 페이지만 준다 — 읽을 게 없다.
+    if '"kind":"adultGate"' in html:
+        result["adult_gate"] = True
+
+    if not result["keywords"]:
+        k = _KEYWORDS_RE.search(html)
+        if k:
+            try:
+                result["keywords"] = [x for x in json.loads(k.group(1)) if isinstance(x, str) and x]
+            except json.JSONDecodeError:
+                pass
 
     # --- 이 작품에 걸린 이벤트 ---
     result["event_ids"] = sorted(set(_EVENT_LINK_RE.findall(html)))
