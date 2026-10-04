@@ -1,0 +1,72 @@
+name: 프로모션·순위대 변화 분석
+
+# daily·events·books 데이터로 docs/data/analysis/promo.json, shifts.json 을 다시 만듭니다.
+# 평소에는 매일 수집(collect.yml) 끝에 자동으로 돌고, 이 작업은 손으로 돌려볼 때 씁니다.
+#  - write 끔(기본): 커밋하지 않고 결과를 '아티팩트(analysis)'로 올립니다. 내려받아 비교할 때 씁니다.
+#  - write 켬: docs/data/analysis 만 커밋·푸시합니다.
+# 내용이 같으면('generated' 시각만 다르면) 파일을 그대로 두므로 빈 커밋이 생기지 않습니다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      write:
+        description: "결과를 저장소에 커밋 (끄면 아티팩트로만 올림)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# 한 그룹에는 '진행 중 1개 + 대기 1개'만 있을 수 있어서, 새로 줄을 서면 이미 대기 중이던 실행
+# (예비 수집 크론·상세 다시 받기 등)이 취소됩니다. 그래서
+#  - write 끔(기본): 커밋하지 않으니 따로 'analyze' 그룹 → 수집 대기열을 건드리지 않습니다.
+#  - write 켬: 커밋하므로 매일 수집과 같은 'collect' 그룹에서 차례를 기다립니다
+#    (수집 중에 돌리면 옛 데이터로 만든 결과가 새 결과를 덮을 수 있음).
+#    이때도 수집이 돌고 있는 동안에는 누르지 마세요(대기 중인 수집이 취소될 수 있음).
+concurrency:
+  group: ${{ inputs.write && 'collect' || 'analyze' }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 파이썬 기본 기능만 쓰므로 따로 설치할 것이 없습니다.
+      # 요약(작품 수·라벨별 건수)은 실행 화면의 Summary 에 붙습니다.
+      - name: 분석 실행
+        run: python scripts/analyze_promo.py --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 올리기(아티팩트)
+        if: ${{ inputs.write != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis
+          path: docs/data/analysis/
+          retention-days: 7
+
+      - name: 결과 저장(커밋)
+        if: ${{ inputs.write == true }}
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/analysis
+          if git diff --staged --quiet; then
+            echo "바뀐 내용 없음."
+          else
+            git commit -m "프로모션·순위대 변화 분석 다시 만들기"
+            for i in 1 2 3 4 5; do
+              if git push; then echo "저장 완료"; exit 0; fi
+              git fetch origin main; git merge -X ours origin/main -m "동시 실행 합치기" || exit 1
+            done
+            exit 1
+          fi

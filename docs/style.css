@@ -12,6 +12,15 @@
   --down: #1570ef;
   --new: #067647;
   --chip: #eef1f6;
+  /* 프로모션 색 3계열(그래프 구간·견본) + 순위대 변화 판정 칩 */
+  --c-price: #f79009;
+  --c-free: #0ba5c4;
+  --c-content: #7a5af8;
+  --bd-op: .13;
+  --lb-promo: #b54708;   --lb-promo-bg: rgba(247,144,9,.15);
+  --lb-content: #6941c6; --lb-content-bg: rgba(122,90,248,.13);
+  --lb-none: #067647;    --lb-none-bg: rgba(6,118,71,.12);
+  --lb-end: #1570ef;     --lb-end-bg: rgba(21,112,239,.12);
   --radius: 12px;
   --shadow: 0 1px 3px rgba(16, 24, 40, .07);
 }
@@ -31,6 +40,14 @@
     --down: #6ea8ff;
     --new: #4ade80;
     --chip: #262a33;
+    --c-price: #fdb022;
+    --c-free: #22ccee;
+    --c-content: #a48afb;
+    --bd-op: .16;
+    --lb-promo: #fdb022;   --lb-promo-bg: rgba(253,176,34,.16);
+    --lb-content: #b692f6; --lb-content-bg: rgba(182,146,246,.17);
+    --lb-none: #4ade80;    --lb-none-bg: rgba(74,222,128,.14);
+    --lb-end: #6ea8ff;     --lb-end-bg: rgba(110,168,255,.16);
     --shadow: none;
     color-scheme: dark;
   }
@@ -47,6 +64,14 @@
   --down: #6ea8ff;
   --new: #4ade80;
   --chip: #262a33;
+  --c-price: #fdb022;
+  --c-free: #22ccee;
+  --c-content: #a48afb;
+  --bd-op: .16;
+  --lb-promo: #fdb022;   --lb-promo-bg: rgba(253,176,34,.16);
+  --lb-content: #b692f6; --lb-content-bg: rgba(182,146,246,.17);
+  --lb-none: #4ade80;    --lb-none-bg: rgba(74,222,128,.14);
+  --lb-end: #6ea8ff;     --lb-end-bg: rgba(110,168,255,.16);
   --shadow: none;
   color-scheme: dark;
 }
@@ -184,6 +209,30 @@ main { padding-top: 14px; padding-bottom: 60px; }
 
 .empty { text-align: center; color: var(--faint); padding: 40px 10px; font-size: .9rem; }
 
+/* ── 변동 > 순위대 변화 ───────────────── */
+.shifttools { display: flex; flex-direction: column; gap: 9px; margin: -4px 0 12px; }
+.howto { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 9px 12px; font-size: .82rem; color: var(--dim); }
+.howto summary { cursor: pointer; color: var(--text); font-weight: 600; }
+.howto ol { list-style: none; margin: 7px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.howto ol b { color: var(--accent); margin-right: 3px; }
+.howto p { margin: 6px 0 0; color: var(--faint); }
+.shiftrow {
+  display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: start;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 11px;
+  box-shadow: var(--shadow); cursor: pointer;
+}
+.shiftrow:hover { border-color: var(--accent); }
+.shiftrow .sline { font-size: .86rem; margin-top: 1px; font-variant-numeric: tabular-nums; }
+.arr.up { color: var(--up); } .arr.down { color: var(--down); }
+.shiftrow .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 5px 0 3px; }
+.shiftrow .zz { font-size: .72rem; color: var(--faint); }
+.shiftrow .nt { font-size: .8rem; color: var(--dim); line-height: 1.5; overflow-wrap: anywhere; }
+.shiftrow .ev { font-size: .76rem; color: var(--faint); margin-top: 3px; overflow-wrap: anywhere; }
+.shiftrow .ev a { color: var(--dim); }
+.shiftrow .ev a:hover { color: var(--accent); text-decoration: underline; }
+
 /* ── 이벤트 ───────────────────────────── */
 .eventlist { display: flex; flex-direction: column; gap: 8px; }
 .eventrow {
@@ -244,6 +293,47 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .chart .ln { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .dot { fill: var(--accent); }
 .chart text { fill: var(--faint); font-size: 10px; }
+/* 프로모션 기간 구간(선 아래 옅은 사각형)과 순위대 변화 표시(▲/▼) */
+.chart .bd { stroke: none; fill-opacity: var(--bd-op); }
+.chart .bd.price { fill: var(--c-price); }
+.chart .bd.free { fill: var(--c-free); }
+.chart .bd.content { fill: var(--c-content); }
+.chart .mkline { stroke-width: 1; opacity: .45; }
+.chart .mk.up .mkline { stroke: var(--up); }
+.chart .mk.down .mkline { stroke: var(--down); }
+.chart .mk .mktx { font-size: 9px; }
+.chart .mk.up .mktx { fill: var(--up); }
+.chart .mk.down .mktx { fill: var(--down); }
+
+/* 색 견본(작은 네모) — 그래프 구간과 같은 색 */
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; vertical-align: -1px; }
+.sw.price { background: var(--c-price); }
+.sw.free { background: var(--c-free); }
+.sw.content { background: var(--c-content); }
+
+/* 순위대 변화 판정 칩 */
+.lb { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: var(--chip); color: var(--dim); white-space: nowrap; }
+.lb.promo { background: var(--lb-promo-bg); color: var(--lb-promo); }
+.lb.content { background: var(--lb-content-bg); color: var(--lb-content); }
+.lb.none { background: var(--lb-none-bg); color: var(--lb-none); }
+.lb.end { background: var(--lb-end-bg); color: var(--lb-end); }
+
+/* 상세: 이 기간 걸린 프로모션 · 판정 */
+.promocard .verdict { background: var(--chip); border-radius: 9px; padding: 8px 10px; margin-bottom: 8px; }
+.promocard .vtop { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.promocard .vwhen { font-size: .78rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.promocard .vwhen.up { color: var(--up); }
+.promocard .vwhen.down { color: var(--down); }
+.promocard .vnote { font-size: .84rem; margin-top: 4px; line-height: 1.55; overflow-wrap: anywhere; }
+.promolist { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; }
+.prow { display: grid; grid-template-columns: 10px 1fr; gap: 9px; align-items: start; }
+.prow .sw { margin-top: 6px; }
+.prow .pt { font-size: .86rem; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.prow .pm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; font-size: .75rem; color: var(--faint); margin-top: 2px; }
+.prow .pwhen { color: var(--dim); font-variant-numeric: tabular-nums; }
+.plink:hover { color: var(--accent); text-decoration: underline; }
+.ktag { font-size: .7rem; background: var(--chip); color: var(--dim); border-radius: 5px; padding: 0 5px; }
 
 .bars { display: flex; flex-direction: column; gap: 4px; }
 .bar { display: grid; grid-template-columns: 34px 1fr 42px; gap: 8px; align-items: center; font-size: .8rem; }

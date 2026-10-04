@@ -97,6 +97,23 @@ jobs:
             echo "- 데이터 파일이 만들어지지 않았습니다." >> $GITHUB_STEP_SUMMARY
           fi
 
+      # 웹툰·BL웹툰 순위대 변화와 프로모션(이벤트·할인·기다무)을 맞춰 보는 분석입니다.
+      # 결과: docs/data/analysis/promo.json, shifts.json (작품 그래프 음영·변동 탭 '순위대 변화'용)
+      # 부가 기능이라 실패해도(continue-on-error) 아래 '결과 저장'은 그대로 돌아,
+      # 수집 결과는 반드시 저장됩니다. 내용이 같으면 파일을 건드리지 않습니다.
+      # 실패하면 실행 전체는 초록색으로 남으므로, 경고(::warning)와 Summary 한 줄로 눈에 띄게 알립니다.
+      # 이때 사이트에는 이전 analysis/*.json 이 그대로 남습니다.
+      - name: 프로모션·순위대 변화 분석
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          python scripts/analyze_promo.py --summary "$GITHUB_STEP_SUMMARY" || {
+            echo "::warning::프로모션·순위대 분석 실패 (사이트에는 이전 결과가 그대로 남음)"
+            echo "- **프로모션·순위대 분석 실패** (이전 결과 유지, 이 단계 로그 확인)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
       # always() — 수집이 중간에 멈췄더라도 거기까지 모은 것은 올립니다.
       - name: 결과 저장(커밋)
         if: always()

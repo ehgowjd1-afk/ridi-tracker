@@ -16,6 +16,9 @@ var D = {
   dailyCache: {},         // 날짜 → daily 스냅샷 (조합 탭 과거 시점용)
   review: {},             // 작품ID → 리뷰
   tree: {},               // 섹션 → 장르 → {parent, subs}
+  promo: null,            // 작품별 프로모션 기간 (analysis/promo.json, 작품을 열 때 한 번만)
+  shifts: null,           // 순위대 변화 판정 (analysis/shifts.json)
+  shiftsById: {},         // 작품ID → 그 작품의 판정 목록
 };
 
 var UI = {
@@ -24,6 +27,7 @@ var UI = {
   section: null, group: null, sub: "", period: "DAILY",
   hideAdult: false,
   moveKey: null, moveKind: "rise",
+  shiftFilter: "all",       // 순위대 변화: all / promo / none / noep
   eventSort: "end",
   eventStatus: "ongoing",   // ongoing / ended / all
 };
@@ -360,10 +364,18 @@ function setupMove() {
     Array.prototype.forEach.call(this.children, function (x) { x.classList.toggle("on", x === b); });
     drawMove();
   });
+  $("#shiftFilter").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    UI.shiftFilter = b.dataset.f;
+    drawMove();
+  });
 }
 
 function drawMove() {
   if (UI.view !== "move") return;
+  var isShift = UI.moveKind === "shift";
+  $("#shiftTools").classList.toggle("hidden", !isShift);
+  if (isShift) { drawShifts(); return; }
   var key = UI.moveKey;
   var table = D.latest.rankings[key];
   var ch = D.latest.changes[key];
@@ -408,6 +420,178 @@ function drawMove() {
     shown++;
   });
   if (!shown) list.appendChild(el("li", "empty", "해당하는 작품이 없습니다."));
+}
+
+// ── 순위대 변화 ─────────────────────────────
+// 업데이트 주기 톱니(새 회차 날 튀었다가 밀리는 모양)를 빼고, 평소 순위대 자체가
+// 바뀐 순간만 모은 목록. 판정은 Actions가 만든 analysis/shifts.json 을 그대로 쓴다.
+// 웹툰(1600)·BL 웹툰(4250) 전체 랭킹만 분석하므로 다른 랭킹에서는 안내만 한다.
+var SHIFT_FILTERS = [
+  ["all", "전체"],
+  ["promo", "프로모션 관련"],
+  ["none", "확인된 프로모션 없음"],
+  ["noep", "회차 없이 튐"],
+];
+function shiftPass(it, f) {
+  if (f === "promo") return it.label !== "none";
+  if (f === "none") return it.label === "none";
+  if (f === "noep") return it.kind === "noep";
+  return true;
+}
+
+function drawShifts() {
+  var list = $("#moveList"), head = $("#moveHead");
+  list.innerHTML = "";
+  var key = UI.moveKey || "";
+  var g = key.slice(0, key.lastIndexOf("-"));
+  var table = D.latest.rankings[key];
+
+  if (g !== "1600" && g !== "4250") {
+    $("#shiftTools").classList.add("hidden");
+    head.innerHTML = table ? "<b>" + table.name + "</b> · 순위대 변화" : "";
+    var li = el("li", "empty", "순위대 변화는 웹툰·BL 웹툰 전체 랭킹에서 볼 수 있어요.");
+    var jump = el("div", "btnrow");
+    jump.style.justifyContent = "center";
+    jump.style.marginTop = "10px";
+    [["1600-DAILY", "웹툰 보기"], ["4250-DAILY", "BL 웹툰 보기"]].forEach(function (x) {
+      if (!D.latest.rankings[x[0]]) return;
+      var b = el("button", "btn", x[1]);
+      b.addEventListener("click", function () {
+        UI.moveKey = x[0];
+        $("#movePick").value = x[0];
+        drawMove();
+      });
+      jump.appendChild(b);
+    });
+    li.appendChild(jump);
+    list.appendChild(li);
+    return;
+  }
+
+  if (!D.shifts) {
+    head.textContent = "";
+    list.appendChild(el("li", "empty", "불러오는 중…"));
+    loadAnalysis().then(drawMove);
+    return;
+  }
+
+  var mine = (D.shifts.items || []).filter(function (it) {
+    return it.g === g && !(UI.hideAdult && it.ad);
+  });
+  // 필터 버튼에 건수를 같이 적는다
+  Array.prototype.forEach.call($("#shiftFilter").children, function (b) {
+    var f = b.dataset.f, n = 0;
+    mine.forEach(function (it) { if (shiftPass(it, f)) n++; });
+    var name = SHIFT_FILTERS.filter(function (x) { return x[0] === f; })[0];
+    b.textContent = (name ? name[1] : f) + " " + n;
+    b.classList.toggle("on", f === UI.shiftFilter);
+  });
+  var rows = mine.filter(function (it) { return shiftPass(it, UI.shiftFilter); });
+
+  var win = D.shifts.window || [];
+  head.innerHTML = "<b>" + (table ? table.name : g) + "</b> · 순위대 변화 <b>" + rows.length + "</b>건"
+    + (win.length === 2 ? " · " + mdDay(win[0]) + "~" + mdDay(win[1]) + " 기록 기준" : "")
+    + " · 최근 것부터";
+
+  if (!(D.shifts.items || []).length) {
+    list.appendChild(el("li", "empty", "아직 분석 결과가 없어요. 다음 수집 때 만들어져요."));
+    return;
+  }
+  rows.forEach(function (it) { list.appendChild(shiftRow(it)); });
+  if (!rows.length) list.appendChild(el("li", "empty", "해당하는 작품이 없어요."));
+}
+
+function shiftRow(it) {
+  var li = el("li", "shiftrow");
+  li.tabIndex = 0;
+  var b = D.latest.books[it.id] || {};
+
+  var img = el("img", "cover");
+  img.loading = "lazy";
+  img.src = coverUrl(it.id, "small");
+  img.alt = "";
+  img.onerror = function () { this.style.visibility = "hidden"; };
+  li.appendChild(img);
+
+  var info = el("div", "info");
+  var tt = el("div", "tt", b.t || it.t || it.id);
+  info.appendChild(tt);
+  info.appendChild(shiftLine(it));
+
+  var chips = el("div", "chips");
+  chips.appendChild(shiftLabelChip(it));
+  var pc = persistChip(it);
+  if (pc) chips.appendChild(pc);
+  if (it.ad) chips.appendChild(el("span", "badge ad", "19+"));
+  if (typeof it.z === "number") {
+    var zz = el("span", "zz", "평소 흔들림의 " + Math.abs(it.z) + "배");
+    zz.title = "평소 순위가 흔들리는 폭과 비교한 변화 크기예요. 클수록 뚜렷한 변화예요.";
+    chips.appendChild(zz);
+  }
+  info.appendChild(chips);
+
+  if (it.note) info.appendChild(el("div", "nt", it.note));
+  (it.promos || []).slice(0, 3).forEach(function (p) {
+    var ev = el("div", "ev");
+    ev.appendChild(el("span", "sw " + promoFamily(p.k)));
+    ev.appendChild(document.createTextNode(" " + promoWhen(p) + " "));
+    ev.appendChild(promoTitleEl(p));
+    info.appendChild(ev);
+  });
+  li.appendChild(info);
+
+  // 판정에 쓴 랭킹(예: 4250-WEEKLY)으로 상세를 연다
+  var ctx = it.g + "-" + it.per;
+  li.addEventListener("click", function (e) {
+    if (e.target.closest("a")) return;      // 이벤트 링크는 그대로 새 탭으로
+    openBook(it.id, ctx);
+  });
+  li.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.target.closest("a")) return;   // 링크에서 Enter = 링크만 연다
+    openBook(it.id, ctx);
+  });
+  return li;
+}
+
+// 회차 없이 튄 경우(noep)는 분석기가 두 가지로 만든다.
+//   · 급등(spike, 오늘의 베스트): before = 직전 7일 중앙값, after = 그날·다음날 중 더 높은 순위(최고)
+//   · 창(window): before/after = 변화 전후 1주 평균
+// 항목에 구분 필드가 없어서 설명문(note)의 '1주 평균'으로 가른다. 설명이 없으면 오늘의 베스트 상승 = 급등.
+function noepIsSpike(it) {
+  if (it.kind !== "noep") return false;
+  if (it.note) return it.note.indexOf("1주 평균") < 0;
+  return it.per === "DAILY" && it.dir === "up";
+}
+/** 급등 설명에 '회차 변화는 확인 못 했어요'가 붙은 경우(직전에 랭킹 밖이라 ep를 못 봄) */
+function noepEpUnknown(it) {
+  return it.kind === "noep" && !!it.note && it.note.indexOf("회차 변화는 확인 못") >= 0;
+}
+/** 숫자 부분: '평균 32위 → 22위' / '평소 200위 밖 → 최고 7위' / '1주 평균 94위 → 200위 밖' */
+function shiftNums(it) {
+  if (noepIsSpike(it)) return "평소 " + rankWord(it.before) + " → 최고 " + rankWord(it.after);
+  return (it.kind === "noep" ? "1주 평균 " : "평균 ") + rankWord(it.before) + " → " + rankWord(it.after);
+}
+/** 앞머리. 목록 줄: '35화(9/29)부터 ' / '회차 변화 없이 10/1 ' / '회차 변화 없이 9/25부터 '
+ *  그래프 ▲▼ 풍선(forMark, 날짜를 맨 앞에): '9/29 35화부터 ' / '10/1 회차 변화 없이 ' / '9/25부터 회차 변화 없이 ' */
+function shiftLead(it, forMark) {
+  var d = mdDay(it.d);
+  if (it.kind === "episode") {
+    if (!it.ep) return d + " 회차부터 ";
+    return forMark ? d + " " + it.ep + "화부터 " : it.ep + "화(" + d + ")부터 ";
+  }
+  var day = d + (noepIsSpike(it) ? " " : "부터 ");
+  var how = noepEpUnknown(it) ? "(회차 확인 못 함) " : "회차 변화 없이 ";
+  return forMark || noepEpUnknown(it) ? day + how : how + day;
+}
+
+/** '35화(9/29)부터 ▲ 주간 평균 32위 → 22위' 한 줄 */
+function shiftLine(it) {
+  var line = el("div", "sline");
+  line.appendChild(document.createTextNode(shiftLead(it, false)));
+  line.appendChild(el("span", "arr " + (it.dir === "down" ? "down" : "up"), it.dir === "down" ? "▼" : "▲"));
+  var per = it.per === "DAILY" ? "오늘의 베스트" : (it.kind === "episode" ? "주간" : "주간 순위");
+  line.appendChild(document.createTextNode(" " + per + " " + shiftNums(it)));
+  return line;
 }
 
 // ────────────────────────────────────────── 키워드 화면
@@ -1550,7 +1734,8 @@ function openBook(id, ctxKey) {
         : softJSON("data/history/" + m + ".json").then(function (j) { D.history[m] = j; return j; });
     })),
     D.events ? Promise.resolve(D.events)
-      : softJSON("data/events/latest.json").then(function (j) { D.events = (j && j.events) || []; return D.events; })
+      : softJSON("data/events/latest.json").then(function (j) { D.events = (j && j.events) || []; return D.events; }),
+    loadAnalysis()
   ]).then(function (r) {
     drawBook(id, r[0], r[1], r[2].filter(Boolean), ctxKey);
   });
@@ -1605,11 +1790,20 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
   body.appendChild(head);
 
   // ── 순위 추이 ──
-  body.appendChild(rankTrendCard(id, months, ctxKey));
+  // 이 작품에 걸린 프로모션 기간은 그래프 뒤에 옅은 색 구간으로, 순위대가 바뀐 날은 ▲/▼로 표시한다.
+  var promos = promosOf(id);
+  var shifts = D.shiftsById[id] || [];
+  var bands = promoBands(promos);
+  body.appendChild(rankTrendCard(id, months, ctxKey, { bands: bands, shifts: shifts }));
+
+  // ── 이 기간 걸린 프로모션 · 순위대 변화 판정 ──
+  // 프로모션도 판정도 없는 작품에는 아무것도 붙이지 않는다.
+  if (promos.length || shifts.length) body.appendChild(promoCard(promos, shifts));
 
   // ── 별점 개수 추이 ──
   // 평균 별점(4.9x)은 거의 안 변해서 추이로 의미가 없다. 대신 별점(참여) 개수가
   // 며칠간 얼마나 늘었는지를 보여준다. 값이 늘수록 위로 올라간다(invert 안 함).
+  // 리뷰 보상 이벤트 기간에는 별점이 부풀었다가 마감 뒤 꺾이므로 같은 색 구간을 깐다.
   var countSeries = collectSeries(months, function (h) { return (h.count || {})[id]; });
   var cPts = countSeries.pts.filter(function (p) { return p.v !== null; });
   if (cPts.length >= 2) {
@@ -1617,14 +1811,15 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
     rc.appendChild(el("h3", "", "별점 개수 추이"));
     var w = el("div", "chartwrap");
     w.appendChild(lineChart(countSeries.pts, {
-      invert: false, fmt: function (v) { return num(Math.round(v)); }
+      invert: false, fmt: function (v) { return num(Math.round(v)); }, bands: bands
     }));
     rc.appendChild(w);
     var first = cPts[0].v, last = cPts[cPts.length - 1].v, diff = last - first;
     rc.appendChild(el("p", "hint",
       cPts.length + "일간 " + num(first) + "개 → " + num(last) + "개"
       + " (" + (diff >= 0 ? "+" : "") + num(diff) + "개)"
-      + (countSeries.gaps ? " · 수집 없던 날 " + countSeries.gaps + "일 빈칸" : "")));
+      + (countSeries.gaps ? " · 수집 없던 날 " + countSeries.gaps + "일 빈칸" : "")
+      + (bands.length ? " · 색 구간은 프로모션 기간이에요(리뷰 이벤트 땐 별점이 빨리 늘 수 있어요)" : "")));
     body.appendChild(rc);
   } else if (b.rc) {
     // 아직 추이가 쌓이지 않은 작품(오늘 처음 잡힌 등)은 현재 개수만 안내.
@@ -1756,7 +1951,9 @@ function catLabelMap() {
 //   예전에는 그중 하나를 임의로(사실상 '전체') 골라 그려서, 로맨스에서 눌러도
 //   전체 순위가 나왔다. 이제 '어느 랭킹 기준으로 볼지'를 고를 수 있게 하고,
 //   작품을 열었던 그 랭킹(ctxKey)을 기본값으로 보여준다.
-function rankTrendCard(id, months, ctxKey) {
+//   extra = { bands: 프로모션 색 구간, shifts: 이 작품의 순위대 변화 판정 } (없어도 됨)
+function rankTrendCard(id, months, ctxKey, extra) {
+  extra = extra || {};
   var card = el("div", "card");
   card.appendChild(el("h3", "", "순위 추이"));
 
@@ -1785,11 +1982,14 @@ function rankTrendCard(id, months, ctxKey) {
 
   // 기본 선택: 열었던 랭킹(ctxKey). 없으면 대표 장르, 그것도 없으면 첫째.
   var ctxPfx = ctxKey ? ctxKey.slice(0, ctxKey.lastIndexOf("-")) : null;
+  var ctxPer = ctxKey ? ctxKey.slice(ctxKey.lastIndexOf("-") + 1) : null;
   var state = {
     cat: (ctxPfx && byCat[ctxPfx]) ? ctxPfx
        : (cats.filter(function (c) { return order(c) === 1; })[0] || cats[0]),
     period: null,
   };
+  // 기간도 열었던 랭킹을 따른다(예: 순위대 변화의 '주간' 판정 → 주간 그래프). 없으면 draw()가 첫 기간으로.
+  if (ctxPer && byCat[state.cat][ctxPer]) state.period = ctxPer;
 
   var catSeg = el("div", "seg small");
   var perSeg = el("div", "seg small");
@@ -1819,17 +2019,38 @@ function rankTrendCard(id, months, ctxKey) {
     var s = collectSeries(months, function (h) { return ((h.rank || {})[id] || {})[key]; });
     wrap.innerHTML = "";
     var pts = s.pts.filter(function (p) { return p.v !== null; });
+    // ▲/▼는 판정에 쓴 랭킹(웹툰·BL 웹툰 전체)과 기간(오늘/주간)이 지금 보는 그래프와 같은 것만 찍는다.
+    // 주간 기준 하락을 오늘의 베스트 그래프에, 웹툰 전체 순위로 낸 판정을 세부 장르 그래프에
+    // 찍으면 엉뚱한 날·엉뚱한 숫자를 가리키게 된다.
+    var mine = (extra.shifts || []).filter(function (it) {
+      return it.per === state.period && it.g === state.cat;
+    });
     if (pts.length < 2) {
       wrap.appendChild(el("p", "hint", "기록이 " + pts.length + "일치뿐이라 아직 선을 그릴 수 없습니다."));
     } else {
-      wrap.appendChild(lineChart(s.pts, { invert: true, fmt: function (v) { return v + "위"; } }));
+      var marks = mine.map(function (it) { return { d: it.d, dir: it.dir, label: shiftMarkText(it) }; });
+      wrap.appendChild(lineChart(s.pts, {
+        invert: true, fmt: function (v) { return v + "위"; },
+        bands: extra.bands, marks: marks
+      }));
     }
     var vals = pts.map(function (p) { return p.v; });
     note.textContent = vals.length
       ? labels[state.cat].name + " 기준 · 최고 " + Math.min.apply(null, vals) + "위 · 최근 "
         + vals[vals.length - 1] + "위 · " + vals.length + "일 기록"
         + (s.gaps ? " · 수집 없던 날 " + s.gaps + "일 빈칸" : "")
+        + ((extra.bands || []).length ? " · 색 구간은 프로모션 기간" : "")
+        + marksElsewhere()
       : "";
+  }
+
+  // 이 그래프엔 ▲/▼가 없는데 다른 랭킹·기간 그래프에는 있으면 어디서 보는지 알려 준다
+  function marksElsewhere() {
+    var sh = extra.shifts || [];
+    if (!sh.length || sh.some(function (it) { return it.per === state.period && it.g === state.cat; })) return "";
+    var it = sh.filter(function (x) { return byCat[x.g] && byCat[x.g][x.per]; })[0];
+    if (!it) return "";
+    return " · ▲▼ 순위대 변화는 '" + labels[it.g].name + " " + periodLabel(it.per) + "' 그래프에 표시해요";
   }
 
   // 랭킹이 둘 이상일 때만 '어느 랭킹으로 볼지' 버튼을 보인다.
@@ -1885,6 +2106,8 @@ function collectSeries(months, pick) {
 }
 
 // ── 선 그래프 (SVG 직접 그리기) ──
+//   opt.bands = [{a, b, cls, title}]  a~b(수집일) 구간을 선 아래에 옅은 사각형으로 칠한다
+//   opt.marks = [{d, dir, label}]     그날 아래쪽에 작은 ▲/▼ 를 찍는다
 function lineChart(pts, opt) {
   opt = opt || {};
   var W = 640, H = 200, L = 42, R = 10, T = 12, B = 26;
@@ -1915,6 +2138,60 @@ function lineChart(pts, opt) {
     return opt.invert ? (T + t * (H - T - B)) : (H - B - t * (H - T - B));
   }
 
+  // pts 는 수집 없던 날까지 하루씩 빠짐없이 이어져 있다(collectSeries).
+  // 그래서 날짜 → 가로 위치는 '첫날부터 며칠째인가'로 바로 구한다.
+  var n = pts.length;
+  var step = n > 1 ? (W - L - R) / (n - 1) : 0;
+  function dayIndex(d) { return d ? dayGap(String(d).slice(0, 10), pts[0].d) : null; }
+
+  // 프로모션 구간: 그래프 날짜 범위 밖은 잘라내고, 하루짜리도 보이게 반 칸씩 넓힌다.
+  // 색 계열이 다른 구간이 겹치는 날은 높이를 나눠 계열마다 제 띠에 따로 칠한다.
+  // (반투명 사각형을 그냥 포개면 섞인 색이 어느 견본과도 안 맞고, 선·▼ 색과 헷갈린다)
+  var BAND_ORDER = ["price", "content", "free"];
+  var cover = [];                            // 날짜 칸 → {계열: [제목…]}
+  (opt.bands || []).forEach(function (bd) {
+    var ia = dayIndex(bd.a), ib = dayIndex(bd.b || bd.a);
+    if (ia === null || ib === null || ib < 0 || ia > n - 1 || ib < ia) return;
+    ia = Math.max(0, ia); ib = Math.min(n - 1, ib);
+    var cls = bd.cls || "";
+    for (var i = ia; i <= ib; i++) {
+      var c = cover[i] || (cover[i] = {});
+      var ts = c[cls] || (c[cls] = []);
+      if (bd.title && ts.indexOf(bd.title) < 0) ts.push(bd.title);
+    }
+  });
+  function famsAt(i) {
+    var c = cover[i];
+    if (!c) return [];
+    var ks = Object.keys(c);
+    return BAND_ORDER.filter(function (f) { return f in c; })
+      .concat(ks.filter(function (f) { return BAND_ORDER.indexOf(f) < 0; }));
+  }
+  function coverKey(i) {
+    return famsAt(i).map(function (f) { return f + ":" + cover[i][f].join("\n"); }).join("|");
+  }
+  function drawBandRun(ia, ib) {
+    var fams = famsAt(ia);
+    var x0 = Math.max(L, X(ia) - step / 2), x1 = Math.min(W - R, X(ib) + step / 2);
+    if (x1 <= x0 || !fams.length) return;
+    var lane = (H - T - B) / fams.length;
+    fams.forEach(function (f, j) {
+      var r = mk("rect", { x: x0, y: T + j * lane, width: x1 - x0, height: lane,
+        class: "bd " + f, "shape-rendering": "crispEdges" });
+      var ts = cover[ia][f];
+      if (ts.length) r.appendChild(mk("title", {}, ts.join("\n")));
+      svg.appendChild(r);
+    });
+  }
+  // 덮인 계열·제목이 똑같은 날들을 한 덩어리로 묶어 그린다
+  var run = null;
+  for (var bi = 0; bi <= n; bi++) {
+    var key = bi < n ? coverKey(bi) : "";
+    if (run && key === run.k) { run.ib = bi; continue; }
+    if (run && run.k) drawBandRun(run.ia, run.ib);
+    run = { k: key, ia: bi, ib: bi };
+  }
+
   [0, 0.5, 1].forEach(function (f) {
     var v = min + f * (max - min);
     var y = Y(v);
@@ -1934,6 +2211,23 @@ function lineChart(pts, opt) {
     d += (started ? " L" : " M") + X(i) + " " + Y(p.v);
     started = true;
   });
+
+  // 순위대가 바뀐 날: 옅은 세로선 + 아래쪽 여백에 ▲/▼
+  var seenMark = {};
+  (opt.marks || []).forEach(function (m) {
+    var i = dayIndex(m.d);
+    if (i === null || i < 0 || i > n - 1) return;
+    var k = m.d + m.dir;
+    if (seenMark[k]) return;                 // 같은 날 같은 방향은 한 번만
+    seenMark[k] = true;
+    var down = m.dir === "down";
+    var g = mk("g", { class: "mk " + (down ? "down" : "up") });
+    g.appendChild(mk("line", { x1: X(i), y1: T, x2: X(i), y2: H - B, class: "mkline" }));
+    g.appendChild(mk("text", { x: X(i), y: H - B + 10, "text-anchor": "middle", class: "mktx" }, down ? "▼" : "▲"));
+    if (m.label) g.appendChild(mk("title", {}, m.label));
+    svg.appendChild(g);
+  });
+
   svg.appendChild(mk("path", { d: d.trim(), class: "ln" }));
 
   pts.forEach(function (p, i) {
@@ -1949,6 +2243,216 @@ function lineChart(pts, opt) {
     svg.appendChild(mk("text", { x: W - R, y: H - 8, "text-anchor": "end" }, last.d.slice(5)));
   }
   return svg;
+}
+
+// ── 프로모션 · 순위대 변화 (data/analysis/) ──
+// promo.json  = 작품별로 걸렸던 이벤트·가격 할인·기간 한정 기다무 기간
+// shifts.json = 업데이트 주기 톱니를 뺀 '평소 순위대' 변화와 그 원인 판정
+// 둘 다 Actions가 매일 다시 만든다. 화면은 읽어서 그리기만 한다.
+
+/** 두 분석 파일을 (처음 한 번만) 읽어 D.promo / D.shifts 에 넣는다. 없으면 빈 값. */
+function loadAnalysis() {
+  return Promise.all([
+    D.promo ? Promise.resolve(D.promo)
+      : softJSON("data/analysis/promo.json").then(function (j) {
+          D.promo = (j && j.works) ? j : { works: {}, platform: [] };
+          return D.promo;
+        }),
+    D.shifts ? Promise.resolve(D.shifts)
+      : softJSON("data/analysis/shifts.json").then(function (j) {
+          D.shifts = (j && j.items) ? j : { items: [] };
+          D.shiftsById = {};
+          D.shifts.items.forEach(function (it) {
+            (D.shiftsById[it.id] || (D.shiftsById[it.id] = [])).push(it);
+          });
+          return D.shifts;
+        })
+  ]);
+}
+
+function promosOf(id) { return (D.promo && D.promo.works && D.promo.works[id]) || []; }
+
+/** "2026-09-14 …" → "9/14" */
+function mdDay(s) {
+  if (!s) return "";
+  return Number(String(s).slice(5, 7)) + "/" + Number(String(s).slice(8, 10));
+}
+
+/** 순위값(전형 순위·평균) → '22위' / '200위 밖' */
+function rankWord(v) {
+  if (v === null || v === undefined) return "-";
+  if (v >= 200) return "200위 밖";
+  return Math.max(1, Math.round(v)) + "위";
+}
+
+// 색 계열 3가지: 가격 할인 / 무료·포인트(랜덤티켓·최신화 포함) / 콘텐츠·론칭
+// 여러 유형이 섞인 이벤트는 가격 할인 → 콘텐츠·론칭 → 무료·포인트 순으로 하나만 고른다.
+// (시즌·완결 이벤트는 대개 포인트도 같이 주지만, 판정에서는 '콘텐츠 이벤트'로 따로 보기 때문)
+var PROMO_FAMILY = { price: "가격 할인", free: "무료·포인트", content: "콘텐츠·론칭" };
+function promoFamily(k) {
+  k = k || [];
+  if (k.indexOf("가격할인") >= 0) return "price";
+  if (k.indexOf("콘텐츠") >= 0 || k.indexOf("론칭") >= 0) return "content";
+  return "free";
+}
+var PROMO_SRC = { event: "이벤트", price: "가격 변화 관측", wff: "기간 한정 기다무" };
+
+/** 표시용 기간: '9/14 하루' / '8/20~9/2' */
+function promoWhen(p) {
+  var s = (p.s || "").slice(0, 10), e = (p.e || "").slice(0, 10);
+  if (!s) return e ? "~" + mdDay(e) : "";
+  if (!e || s === e) return mdDay(s) + " 하루";
+  return mdDay(s) + "~" + (e.slice(0, 4) !== s.slice(0, 4) ? e.slice(0, 4) + "/" : "") + mdDay(e);
+}
+
+/** 프로모션 제목. 이벤트 주소가 있으면 새 탭 링크로. */
+function promoTitleEl(p) {
+  var t;
+  if (p.u) {
+    t = el("a", "plink", p.t || "(제목 없음)");
+    t.href = p.u; t.target = "_blank"; t.rel = "noopener";
+  } else {
+    t = el("span", "", p.t || "(제목 없음)");
+  }
+  t.title = (p.src === "price" ? "할인이 보인 수집 시각 " : "")
+    + (p.s || "") + " ~ " + (p.e || "") + " (한국시간)";
+  return t;
+}
+
+/** 그래프용 색 구간. 같은 기간·같은 색(예: 이벤트와 그 가격 할인)은 하나로 합친다. */
+function promoBands(promos) {
+  var seen = {}, out = [];
+  promos.forEach(function (p) {
+    if (!p.a) return;
+    var cls = promoFamily(p.k);
+    var key = p.a + "|" + (p.b || p.a) + "|" + cls;
+    var line = promoWhen(p) + " · " + p.t;
+    if (seen[key]) { seen[key].title += "\n" + line; return; }
+    seen[key] = { a: p.a, b: p.b || p.a, cls: cls, title: line };
+    out.push(seen[key]);
+  });
+  return out;
+}
+
+var SHIFT_LABEL = {
+  // promo_live 는 '아직 진행 중'과 '끝났지만 다음 사이클 자료가 모자람'을 함께 뜻한다.
+  // 화면 글자는 shiftLabelOf()가 프로모션 끝난 시각을 보고 둘 중 하나로 고른다.
+  promo_live: { t: "프로모션 진행 중", c: "promo",
+    tip: "프로모션과 함께 바뀌었고 프로모션이 아직 진행 중이라, 효과인지 판단을 미뤄요." },
+  promo_live_ended: { t: "프로모션 끝남 · 판정 대기", c: "promo",
+    tip: "프로모션과 함께 바뀌었어요. 끝난 뒤 자료가 아직 모자라 효과인지 판단을 미뤄요." },
+  promo_temp: { t: "프로모션 끝나고 복귀", c: "promo",
+    tip: "프로모션 동안 바뀌었다가 끝난 뒤 원래 수준으로 돌아갔어요." },
+  promo_kept: { t: "프로모션 후에도 유지", c: "promo",
+    tip: "프로모션이 끝난 뒤에도 바뀐 순위대가 이어졌어요. 작품 쪽 힘일 수 있어요." },
+  promo_end: { t: "프로모션 종료로 하락", c: "end",
+    tip: "프로모션이 끝난 바로 다음(주간은 8일째)에 내려갔어요." },
+  content: { t: "시즌·완결 이벤트와 겹침", c: "content",
+    tip: "시즌 시작·완결·외전 같은 이벤트와 겹쳐서 회차 효과와 나눌 수 없어요." },
+  none: { t: "확인된 프로모션 없음", c: "none",
+    tip: "같은 시기 이 작품의 이벤트·할인을 찾지 못했어요. 배너·추천 노출은 데이터에 없어요." },
+};
+var SHIFT_PERSIST = {
+  "지속": ["유지됨", "다음 회차(또는 이후 며칠)에도 이어졌어요."],
+  "일시": ["일시적", "곧 원래 수준으로 돌아갔어요."],
+  "부분": ["일부만 유지", "바뀐 폭의 절반쯤만 이어졌어요."],
+  "보류": ["지켜보는 중", "아직 다음 회차·이후 자료가 모자라요."],
+};
+/** 지금 한국시간 'YYYY-MM-DD HH:mm' (프로모션 e 와 같은 꼴) */
+function kstNowStr() {
+  return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ");
+}
+/** 판정 항목의 라벨 정보. promo_live 는 걸린 프로모션이 모두 끝났으면 '끝남 · 판정 대기'로. */
+function shiftLabelOf(it) {
+  var L = SHIFT_LABEL[it.label] || { t: it.label, c: "", tip: "" };
+  if (it.label === "promo_live") {
+    var ps = it.promos || [];
+    var now = kstNowStr();
+    var ended = ps.length > 0 && ps.every(function (p) { return p.e && String(p.e) < now; });
+    if (ended) return SHIFT_LABEL.promo_live_ended;
+  }
+  return L;
+}
+function shiftLabelChip(it) {
+  var L = shiftLabelOf(it);
+  var s = el("span", "lb " + L.c, L.t);
+  s.title = L.tip;
+  return s;
+}
+/** 지속성 칩. 라벨과 어긋나지 않게 고쳐 쓰거나 뺀다(없으면 null).
+ *  · promo_temp(끝나고 복귀) + 지속/부분: 지속성은 급등 뒤 며칠을 본 것이라 프로모션 기간 안의 이야기다.
+ *  · promo_live + 보류: 라벨이 이미 '판정 대기'라 겹친다. */
+function persistChip(it) {
+  var ps = SHIFT_PERSIST[it.persist];
+  if (!ps) return null;
+  if (it.label === "promo_temp") {
+    if (it.persist === "지속") ps = ["프로모션 동안 유지", "프로모션이 이어지는 동안엔 바뀐 순위대가 유지됐고, 끝난 뒤 돌아갔어요."];
+    else if (it.persist === "부분") ps = ["프로모션 동안 일부 유지", "프로모션이 이어지는 동안 바뀐 폭의 절반쯤이 유지됐고, 끝난 뒤 돌아갔어요."];
+    else if (it.persist === "보류") return null;
+  }
+  if (it.label === "promo_live" && it.persist === "보류") return null;
+  var pc = el("span", "badge", ps[0]);
+  pc.title = ps[1];
+  return pc;
+}
+function shiftMarkText(it) {
+  return shiftLead(it, true) + (it.dir === "down" ? "▼ " : "▲ ") + shiftNums(it)
+    + " · " + shiftLabelOf(it).t;
+}
+
+/** 상세 화면: 이 기간 걸린 프로모션 목록 + 순위대 변화 판정 */
+function promoCard(promos, shifts) {
+  var card = el("div", "card promocard");
+  var h = el("h3", "", promos.length ? "이 기간 걸린 프로모션" : "순위대 변화 판정");
+  var win = D.promo && D.promo.window;
+  if (win && win.length === 2) {
+    h.appendChild(el("span", "r", mdDay(win[0]) + "~" + mdDay(win[1])
+      + (promos.length ? " · " + promos.length + "건" : "")));
+  }
+  card.appendChild(h);
+
+  // 파일은 최근 것부터지만, 한 작품 안에서는 일어난 순서대로 읽는 게 자연스럽다
+  shifts.slice().sort(function (x, y) { return x.d < y.d ? -1 : x.d > y.d ? 1 : 0; }).forEach(function (it) {
+    var v = el("div", "verdict");
+    var top = el("div", "vtop");
+    top.appendChild(shiftLabelChip(it));
+    var per = it.per === "DAILY" ? "오늘의 베스트" : "주간 베스트";
+    top.appendChild(el("span", "vwhen " + (it.dir === "down" ? "down" : "up"),
+      (it.dir === "down" ? "▼ " : "▲ ") + mdDay(it.d) + " · " + per));
+    var pc = persistChip(it);
+    if (pc) top.appendChild(pc);
+    v.appendChild(top);
+    if (it.note) v.appendChild(el("div", "vnote", it.note));
+    card.appendChild(v);
+  });
+
+  if (promos.length) {
+    var list = el("div", "promolist");
+    promos.forEach(function (p) {
+      var row = el("div", "prow");
+      var fam = promoFamily(p.k);
+      var sw = el("span", "sw " + fam);
+      sw.title = PROMO_FAMILY[fam];
+      row.appendChild(sw);
+      var bx = el("div", "pbody");
+      var tl = el("div", "pt");
+      tl.appendChild(promoTitleEl(p));
+      bx.appendChild(tl);
+      var meta = el("div", "pm");
+      meta.appendChild(el("span", "pwhen", promoWhen(p)));
+      meta.appendChild(el("span", "", (PROMO_SRC[p.src] || p.src) + (p.role === "mentioned" ? " · 설명에 언급" : "")));
+      (p.k || []).forEach(function (k) { meta.appendChild(el("span", "ktag", k)); });
+      bx.appendChild(meta);
+      row.appendChild(bx);
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+  }
+
+  var hasNone = shifts.some(function (it) { return it.label === "none"; });
+  card.appendChild(el("p", "hint", "배너·추천 노출은 기록이 없어 판정에 넣지 못했어요."
+    + (hasNone ? " '확인된 프로모션 없음'은 이벤트·할인을 찾지 못했다는 뜻이에요." : "")));
+  return card;
 }
 
 // ── 리뷰 분석 ──
