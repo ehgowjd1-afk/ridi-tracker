@@ -2193,6 +2193,10 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
     }
   }
 
+  // ── 리뷰 요소별 반응 (작화·스토리·캐릭터… 긍정/부정) ──
+  var ac = aspectCard(reviewData && reviewData.reviews);
+  if (ac) body.appendChild(ac);
+
   // ── 리뷰 분석 ──
   body.appendChild(reviewCard(reviewData));
 }
@@ -2784,6 +2788,168 @@ function reviewKeywords(reviews, topN) {
     .filter(function (p) { return p[1] >= 2; })
     .sort(function (a, b) { return b[1] - a[1]; })
     .slice(0, topN || 24);
+}
+
+// ── 리뷰 '요소별 반응' 분석 (절 단위 감성) ─────────────────────
+// 리디 리뷰는 별점이 거의 전부 5점이라 별점으론 '어떤 요소가 긍/부정'인지 알 수 없다.
+// 그래서 리뷰 '본문'을 절(clause) 단위로 쪼개, 각 절에서 요소 키워드 + 감성 표현을 읽는다.
+//   예) "능글 남주 좋음.. 대신 일러가 좀 아쉽네요" → 캐릭터=긍정, 그림=부정
+// 사전은 실제 리뷰 100여 건을 분석해 만들었고, 오탐(선구매·기대평, '없이/않' 접미부정,
+// '비추천'⊂'추천', '씬' 단독, 반어 등)을 걸러내도록 규칙을 넣었다. 대략적 경향 파악용.
+var RABSA = (function () {
+  function S(s) { return s.split(/\s+/).filter(Boolean); }
+  var aspects = [
+    { key: "art",       label: "그림·작화", kw: S("그림체 그림이 그림을 그림은 그림도 작화 작화가 일러 일러스트 삽화 삽화본 표지 화풍 채색 색감 비주얼 화질 연출 눈호강") },
+    { key: "story",     label: "스토리·전개", kw: S("스토리 전개 서사 빌드업 떡밥 복선 반전 개연성 짜임새 흐름 템포 호흡 완급조절 급전개 급발진 급마무리 늘어지 루즈 질질 지지부진 흐지부지 산만 중구난방 뜬금 제자리걸음 무한반복 전개속도 고구마 사이다 답답 속터지 속시원 각색 삽질") },
+    { key: "character", label: "캐릭터 매력", kw: S("남주 여주 주인공 캐릭터 캐릭 인물 캐붕 매력 매력적 무매력 매력없 입체적 평면적 성격 집착 다정 능글 까칠 민폐 찌질 찐따 호구 멘헤라 금쪽이 싸가지 수동적 멍청 햇살 회피형 공수 미남수 미인수 떡대수 연상수 연하수 연상공 연하공 집착공 집착수 까칠수 다정공 부둥") },
+    { key: "chemistry", label: "케미·관계", kw: S("케미 캐미 공수조합 관계성 티키타카 밀당 혐관 쌍방구원 투샷 상호작용 찰떡궁합") },
+    { key: "romance",   label: "설렘·로맨스", kw: S("로맨스 설렘 설레 두근 달달 달콤 애틋 간질간질 몽글몽글 순애 절절 애절 러브력 썸 연애 꽁냥") },
+    { key: "immersion", label: "몰입·재미", kw: S("몰입 몰입감 흡입력 흡인력 재미 재밌 꿀잼 존잼 핵잼 개잼 노잼 지루 술술 순삭 정주행 밤새 흥미진진 흥미로 흥미 킬링타임 킬타 도파민 잘읽 안읽") },
+    { key: "writing",   label: "필력·문장", kw: S("필력 문장 문장력 문체 글솜씨 글맛 묘사 서술 대사 독백 번역 번역투 발번역 오타 오탈자 비문 가독성 띄어쓰기 편집 어휘 글빨") },
+    { key: "emotion",   label: "분위기·감성", kw: S("감정선 분위기 감성 여운 먹먹 눈물 울었 울컥 펑펑 감동 신파 잔잔 담백 쓸쓸 외로움 울림") },
+    { key: "humor",     label: "유머·개그", kw: S("개그 유머 드립 말장난 병맛 코믹 코미디 웃기 웃음 유쾌 피식 빵터") },
+    { key: "setting",   label: "세계관·설정", kw: S("세계관 설정 소재 클리셰 트로프 신선 참신 독특 신박 특이 진부 뻔하 전형적 양산형 회빙환 회귀 빙의 역하렘") },
+    { key: "spice",     label: "수위", kw: S("수위 고수위 저수위 19금 꾸금 섹텐 더티토크 야하 야르 꼴리 개꼴 존꼴 노꼴 자극적 적나라 노골적 BDSM 키스씬 베드씬 정사씬 섹슈얼") },
+    { key: "ending",    label: "분량·완결·외전", kw: S("결말 완결 외전 엔딩 마무리 용두사미 급마무리 떡밥회수 분량 단편 장편 권수 짧 휴재 존버 뒷심부족") },
+    { key: "price",     label: "가격·과금", kw: S("가격 정가 가성비 돈값 비싸 과금 환불 돈아깝 시간아깝 캐시아깝") },
+    { key: "author",    label: "작가·전작 신뢰", kw: S("믿고보는 전작 차기작 도장깨기") }
+  ];
+  var positive = S("재밌 재미있 재미나 잼나 꿀잼 존잼 핵잼 개잼 개존잼 대존잼 존맛 맛도리 맛집 맛있 마시써 꿀맛 최고 명작 수작 인생작 띵작 갓작 갓벽 레전드 대작 대박 완벽 만족 흡입력 흡인력 몰입 술술 순삭 흥미 흥미진진 흥미로 매력적 매력있 설레 설렘 두근 달달 달콤 애틋 간질간질 몽글몽글 절절 순애 여운 감동 먹먹 울컥 귀엽 기엽 졸귀 귀염뽀짝 뽀짝 사랑스럽 예쁘 이쁘 깜찍 탄탄 촘촘 짜임새 깔끔 신선 참신 독특 신박 취저 취향저격 입덕 강추 강력추천 츄라이 정주행 밤새 힐링 섹시 쫄깃 찰떡 명불허전 극락 감탄 입체적 독보적 완독 믿고보는 유쾌 웃기 웃음 피식 빵터 미쳤 미친 골때리 죽이네 찰지 완급조절 사이다 눈호강 유죄 재탕 재독 괜찮 ㄱㅊ 볼만 무난 그럭저럭 준수 좋");
+  var posPhrase = ["나쁘지 않", "나쁘진 않", "싫지 않", "다시 읽", "또 읽", "잘 읽히", "술술 읽", "손을 놓을 수 없", "손을 못 놓",
+    "매력 있", "매력이 있", "매력도 있", "매력 넘", "재미 있", "흥미 있", "케미 있"];
+  var negative = S("아쉽 아쉬 지루 루즈 질질 늘어지 고구마 용두사미 뒷심부족 엔딩조루 억지 작위 유치 오글 오그라들 노잼 재미없 잼없 답답 속터지 비추 하차 구매방지 재구매방지 재대여방지 방지용 작붕 캐붕 발번역 번역투 오타 오탈자 비문 산만 어수선 중구난방 난잡 평면적 돌려막기 자기복제 급전개 급발진 급마무리 급작스럽 뜬금 별로 별루 최악 실망 짜증 불호 난해 역하 현타 양산형 김빠 식었 묵은지 무매력 매력없 멍청 바보 찌질 찐따 민폐 호구 뇌절 밍숭맹숭 밍밍 슴슴 싱겁 허무 허술 노답 똥망 대실패 돈아깝 시간아깝 캐시아깝 짜치 뻔하 진부 전형적 질리 기빨리 꾸역꾸역 얼렁뚱땅 휘리릭 후다닥 지지부진 무한반복 흐지부지 올드 촌스럽 부자연스럽 어색 수준미달 짬뽕 짜집기 거슬리 극혐 쓰레기 저질 저급 지저분 더럽 지뢰 심심 흐린눈 속지마 평점에속 별점에낚 어이없 어처구니 떨어지 애매 어정쩡 허접 힘빠지 맥빠 삽질");
+  var negPhrase = ["안 읽히", "안읽히", "안 넘어가", "손이 안 가", "손을 놓았", "읽기 싫",
+    "매력 없", "매력이 없", "재미 없", "흥미 없"];
+  // 절(clause) 분리: 문장부호 + 역접 연결어 (치고는/치곤만, 동사 '-치고'는 제외)
+  var splitRe = /[\n\r.!?…·,、;:~～]+|는데|은데|ㄴ데|지만|하지만|그런데|근데|대신|다만|그래도|빼면|빼곤|빼고|면서도|반면|그럼에도|치고는|치곤/g;
+  // 추측·선구매(기대평)성 절은 '경험 평가'가 아니므로 극성에서 제외
+  var conjectureRe = /것\s?같|듯|겠|예정|았으면|었으면|면\s?좋겠|길\s?바|기대(돼|된|됩|되|하|함)|읽어\s?볼|볼게|잘\s?읽겠|읽을/;
+  var preReadRe = /선리뷰|선구매|선결제|미보후|미리보기\s?후|구매합니다|지릅니다|지름신|믿고\s?삼|믿고\s?산다|믿고\s?구매|잘\s?읽겠|읽고\s?수정|읽어볼게|읽어볼께|읽을\s?예정|기대평/;
+  var readRe = /봤|읽었|완독|하차|보는\s?중|보고\s?있|읽는\s?중|읽고\s?있|재밌었|재미있었|잘\s?봤|다\s?봄|정주행/;
+  return { aspects: aspects, positive: positive, posPhrase: posPhrase, negative: negative,
+    negPhrase: negPhrase, splitRe: splitRe, conjectureRe: conjectureRe, preReadRe: preReadRe, readRe: readRe };
+})();
+
+// 한 절의 극성: +1 긍정 / -1 부정 / 0 판단 불가
+function rabsaPolarity(cl) {
+  var L = RABSA;
+  var m = cl.replace(/좋아하|좋아해|좋아할|좋아함/g, "▦▦▦");   // '좋아하는'(취향)은 평가 아님
+  var pos = 0, neg = 0, i, w, after, before;
+  function mask(str, idx, len, ch) { return str.substring(0, idx) + new Array(len + 1).join(ch) + str.substring(idx + len); }
+
+  // 1) 부정어 (뒤에 '없이/않/덜' 등이 붙으면 칭찬으로 반전)
+  L.negative.forEach(function (ww) {
+    i = m.indexOf(ww);
+    while (i >= 0) {
+      after = m.substr(i + ww.length, 4);
+      before = m.substr(Math.max(0, i - 2), 2);
+      if (/없이|없고|없는|없음|없어|없네|없었|않|덜/.test(after) || /덜/.test(before)) pos++; else neg++;
+      m = mask(m, i, ww.length, "▦");
+      i = m.indexOf(ww);
+    }
+  });
+  L.negPhrase.forEach(function (ph) { while (m.indexOf(ph) >= 0) { neg++; m = m.replace(ph, "▦"); } });
+
+  // 2) 긍정어 (뒤에 '않/없' 또는 앞에 홀로 선 '안/못' → 부정으로 반전)
+  L.positive.forEach(function (ww) {
+    i = m.indexOf(ww);
+    while (i >= 0) {
+      after = m.substr(i + ww.length, 4);
+      before = m.substring(0, i);
+      var negated = /^(지|진|지도|긴)?\s*(않|안|없)/.test(after) || /(^|\s)(안|못)\s*$/.test(before.slice(-4));
+      if (negated) neg++; else pos++;
+      m = mask(m, i, ww.length, "♦");
+      i = m.indexOf(ww);
+    }
+  });
+  L.posPhrase.forEach(function (ph) { while (m.indexOf(ph) >= 0) { pos++; m = m.replace(ph, "♦"); } });
+
+  if (pos > neg) return 1;
+  if (neg > pos) return -1;
+  return 0;
+}
+
+// 작품 리뷰 전체 → 요소별 긍정/부정 집계
+function rabsaAnalyze(reviews) {
+  var L = RABSA;
+  var res = {};
+  L.aspects.forEach(function (a) { res[a.key] = { key: a.key, label: a.label, pos: 0, neg: 0 }; });
+  var used = 0, total = 0;
+  (reviews || []).forEach(function (r) {
+    var text = (r && r.content || "").trim();
+    total++;
+    if (text.length < 4) return;
+    if (L.preReadRe.test(text) && !L.readRe.test(text)) return;   // 선구매·기대평 통째 제외
+    var clauses = text.split(L.splitRe);
+    var got = false;
+    clauses.forEach(function (cl) {
+      if (cl.replace(/\s/g, "").length < 2) return;
+      if (L.conjectureRe.test(cl)) return;                        // 추측성 절 제외
+      var pol = rabsaPolarity(cl);
+      if (!pol) return;
+      L.aspects.forEach(function (a) {
+        for (var k = 0; k < a.kw.length; k++) {
+          if (cl.indexOf(a.kw[k]) >= 0) {
+            if (pol > 0) res[a.key].pos++; else res[a.key].neg++;
+            got = true;
+            break;
+          }
+        }
+      });
+    });
+    if (got) used++;
+  });
+  var list = L.aspects.map(function (a) { return res[a.key]; })
+    .filter(function (a) { return a.pos + a.neg > 0; })
+    .sort(function (a, b) { return (b.pos + b.neg) - (a.pos + a.neg); });
+  return { list: list, used: used, total: total };
+}
+
+// '요소별 반응' 카드
+function aspectCard(reviews) {
+  var a = rabsaAnalyze(reviews);
+  var shown = a.list.filter(function (x) { return x.pos + x.neg >= 2; });
+  if (!shown.length) return null;
+
+  var card = el("div", "card");
+  var h = el("h3");
+  h.innerHTML = "요소별 반응 <span class='r'>리뷰 " + num(a.total) + "건 중 " + num(a.used) + "건에서 뽑음</span>";
+  card.appendChild(h);
+
+  // 한 줄 요약: 호평/아쉬움 요소
+  var strongPos = shown.filter(function (x) { return x.pos >= 3 && x.pos >= x.neg * 2; })
+    .sort(function (x, y) { return y.pos - x.pos; }).slice(0, 3);
+  var strongNeg = shown.filter(function (x) { return x.neg >= 2 && x.neg >= x.pos; })
+    .sort(function (x, y) { return y.neg - x.neg; }).slice(0, 3);
+  if (strongPos.length || strongNeg.length) {
+    var sum = el("p", "covernote");
+    var parts = [];
+    if (strongPos.length) parts.push("주로 호평: " + strongPos.map(function (x) { return x.label; }).join(" · "));
+    if (strongNeg.length) parts.push("자주 지적: " + strongNeg.map(function (x) { return x.label; }).join(" · "));
+    sum.textContent = parts.join("   /   ");
+    card.appendChild(sum);
+  }
+
+  var wrap = el("div", "asp");
+  shown.slice(0, 11).forEach(function (x) {
+    var t = x.pos + x.neg;
+    var row = el("div", "asprow");
+    row.appendChild(el("div", "asplabel", x.label));
+    var bar = el("div", "aspbar");
+    var p = el("div", "asppos"); p.style.width = (x.pos / t * 100) + "%";
+    var n = el("div", "aspneg"); n.style.width = (x.neg / t * 100) + "%";
+    bar.appendChild(p); bar.appendChild(n);
+    row.appendChild(bar);
+    row.appendChild(el("div", "aspnum", "👍" + x.pos + " 👎" + x.neg));
+    wrap.appendChild(row);
+  });
+  card.appendChild(wrap);
+
+  var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. ";
+  if (a.used < 10) note += "뽑힌 리뷰가 적어 참고용으로만 보세요.";
+  else note += "초록=호평, 빨강=아쉬움 언급 횟수.";
+  card.appendChild(el("p", "hint", note));
+  return card;
 }
 
 function reviewCard(data) {

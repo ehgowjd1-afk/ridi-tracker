@@ -347,6 +347,15 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .bar .fill.neg { background: var(--up); }
 .bar .n { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
 
+/* 리뷰 요소별 반응 (초록=호평 / 빨강=아쉬움) */
+.asp { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.asprow { display: grid; grid-template-columns: 76px 1fr auto; gap: 8px; align-items: center; font-size: .8rem; }
+.asplabel { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aspbar { display: flex; height: 12px; border-radius: 4px; overflow: hidden; background: var(--chip); }
+.asppos { background: var(--new); height: 100%; }
+.aspneg { background: var(--up); height: 100%; }
+.aspnum { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .72rem; }
+
 .reviews { display: flex; flex-direction: column; gap: 9px; }
 .rv { border-top: 1px solid var(--line); padding-top: 8px; font-size: .85rem; }
 .rv:first-child { border-top: 0; padding-top: 0; }
