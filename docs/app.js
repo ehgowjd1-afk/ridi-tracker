@@ -2005,6 +2005,12 @@ function goKeywordFromTag(tag, ctxKey) {
   var r = ctxKey && D.latest && D.latest.rankings && D.latest.rankings[ctxKey];
   if (r && D.tree[r.section] && D.tree[r.section].groups[r.group]) {
     KW.section = r.section; KW.group = r.group; KW.sub = "";
+    // 이 장르에 '전체' 랭킹이 없고 세부장르만 있으면 첫 세부장르로 — 빈 화면 방지
+    var g = D.tree[r.section].groups[r.group];
+    if (g && !g.parent) {
+      var subs = Object.keys(g.subs || {});
+      if (subs.length) KW.sub = subs[0];
+    }
   }
   KW.query = tag;
   var box = $("#kwSearch"); if (box) box.value = tag;

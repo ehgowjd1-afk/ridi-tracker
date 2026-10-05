@@ -282,7 +282,9 @@ main { padding-top: 14px; padding-bottom: 60px; }
 .tags { display: flex; gap: 5px; flex-wrap: wrap; }
 .tag { font-size: .78rem; background: var(--chip); color: var(--dim); border-radius: 6px; padding: 2px 7px; }
 .tag.k { background: rgba(31,111,235,.12); color: var(--accent); }
-.tag.clickable { cursor: pointer; transition: background .12s, box-shadow .12s; }
+/* 클릭 가능한 키워드 태그: 데스크톱·모바일 모두 '누를 수 있음'이 보이도록
+   항상 테두리를 얇게 두르고(어포던스), 탭 영역도 살짝 키운다. */
+.tag.clickable { cursor: pointer; padding: 3px 8px; box-shadow: 0 0 0 1px rgba(31,111,235,.35) inset; transition: background .12s, box-shadow .12s; }
 .tag.clickable:hover { background: rgba(31,111,235,.24); box-shadow: 0 0 0 1px var(--accent) inset; }
 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .85rem; }
