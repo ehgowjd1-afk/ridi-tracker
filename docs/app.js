@@ -1183,7 +1183,7 @@ function tagSuggestions(q, limit) {
 function kwScopeLabel() { return KW.sub || KW.group; }
 
 // 키워드를 가진 작품들을 복합 점수로 정렬해 보여준다.
-//   점수 = 순위 가중평균 70% + 누적 별점수 30%
+//   점수 = 순위 가중평균 80% + 누적 별점수 20%
 //   순위 가중평균: 장기 기간일수록 무겁게 (월간>주간>일간 = 3:2:1,
 //                 E북은 스테디>월간>주간 = 3:2:1). 작품이 든 기간만으로 계산.
 //   정규화: 두 값 모두 결과 집합 안에서 min-max → 0~100 점.
@@ -1274,7 +1274,7 @@ function renderKeywordWorks(target) {
   cand.forEach(function (c) {
     var rankNorm = (maxM === minM) ? 1 : (maxM - c.mean) / (maxM - minM);
     var rateNorm = (maxR === minR) ? 1 : (c.rc - minR) / (maxR - minR);
-    c.score = 100 * (0.7 * rankNorm + 0.3 * rateNorm);
+    c.score = 100 * (0.8 * rankNorm + 0.2 * rateNorm);
   });
   cand.sort(function (a, b) { return b.score - a.score || a.mean - b.mean; });
 
@@ -1287,7 +1287,7 @@ function renderKeywordWorks(target) {
     + (total > shown.length ? " 중 상위 " + shown.length : "")));
 
   body.appendChild(el("p", "covernote",
-    "점수 = 순위 가중평균 70% + 누적 별점수 30%. "
+    "점수 = 순위 가중평균 80% + 누적 별점수 20%. "
     + "순위 가중치 " + weightDesc + " (장기일수록 크게). "
     + "현재(" + D.latest.date + ") 순위 기준."));
 
@@ -1997,6 +1997,23 @@ function closeSheet() {
   $("#sheet").classList.add("hidden");
   document.body.style.overflow = "";
 }
+
+// 상세 모달의 키워드 태그를 누르면 → 키워드 탭으로 이동해
+// 그 키워드를 가진 작품들을 점수순(순위 80% + 별점수 20%)으로 보여준다.
+// 작품이 속한 섹션/장르(ctxKey)로 범위를 맞춰 준다(넓게: 장르 전체).
+function goKeywordFromTag(tag, ctxKey) {
+  var r = ctxKey && D.latest && D.latest.rankings && D.latest.rankings[ctxKey];
+  if (r && D.tree[r.section] && D.tree[r.section].groups[r.group]) {
+    KW.section = r.section; KW.group = r.group; KW.sub = "";
+  }
+  KW.query = tag;
+  var box = $("#kwSearch"); if (box) box.value = tag;
+  closeSheet();
+  UI.view = "keyword";
+  fillKwPickers();
+  render();
+  var main = $("#main"); if (main && main.scrollIntoView) main.scrollIntoView();
+}
 document.addEventListener("click", function (e) {
   if (e.target.closest("[data-close]")) closeSheet();
 });
@@ -2092,7 +2109,12 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
     var tc = el("div", "card");
     tc.appendChild(el("h3", "", "키워드 · 태그"));
     var tb = el("div", "tags");
-    tags.forEach(function (t) { tb.appendChild(el("span", "tag k", "#" + t)); });
+    tags.forEach(function (t) {
+      var s = el("span", "tag k clickable", "#" + t);
+      s.title = "이 키워드를 가진 작품들을 점수순(순위 80% + 별점수 20%)으로 보기";
+      s.addEventListener("click", function () { goKeywordFromTag(t, ctxKey); });
+      tb.appendChild(s);
+    });
     metaTags.forEach(function (t) { tb.appendChild(el("span", "tag", t)); });
     tc.appendChild(tb);
     body.appendChild(tc);
