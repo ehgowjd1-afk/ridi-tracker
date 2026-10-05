@@ -1625,7 +1625,7 @@ function renderComboWorks(works, ctxKey) {
   works.forEach(function (w) {
     var rank = (mx === mn) ? 1 : (mx - w.mean) / (mx - mn);
     var rate = (rx === rn) ? 1 : (w.rc - rn) / (rx - rn);
-    w.score = 100 * (0.7 * rank + 0.3 * rate);
+    w.score = 100 * (0.8 * rank + 0.2 * rate);
   });
   works = works.slice().sort(function (a, b) { return b.score - a.score || a.mean - b.mean; });
   var list = el("ol", "booklist");
@@ -1693,7 +1693,7 @@ function cbExcel() {
     works.forEach(function (w) {
       var rk = (mx === mn) ? 1 : (mx - w.mean) / (mx - mn);
       var rt = (rx === rn) ? 1 : (w.rc - rn) / (rx - rn);
-      w.score = 100 * (0.7 * rk + 0.3 * rt);
+      w.score = 100 * (0.8 * rk + 0.2 * rt);
     });
     works.sort(function (a, b) { return b.score - a.score || a.mean - b.mean; });
     rows = [["조합", CB.sel.map(function (k) { return "#" + k; }).join(" + ")],
