@@ -43,16 +43,17 @@
   "2026-10-01",
   "2026-10-02",
   "2026-10-03",
-  "2026-10-04"
+  "2026-10-04",
+  "2026-10-05"
  ],
  "months": [
   "2026-08",
   "2026-09",
   "2026-10"
  ],
- "updated_at": "2026-10-04T11:57:31+09:00",
- "latest_date": "2026-10-04",
- "book_count": 12857,
+ "updated_at": "2026-10-05T11:34:35+09:00",
+ "latest_date": "2026-10-05",
+ "book_count": 12911,
  "ranking_count": 189,
  "event_count": 563,
  "sections": {
@@ -67,15 +68,15 @@
   "STEADY": "스테디셀러"
  },
  "last_run": {
-  "requests": 474,
-  "seconds": 1348.4,
+  "requests": 907,
+  "seconds": 2214.6,
   "failures": [],
   "reviews": {
-   "books": 0,
-   "added": 0
+   "books": 295,
+   "added": 11685
   },
   "details": 200,
   "rate_limit_hits": 0
  },
- "ended_count": 3803
+ "ended_count": 3818
 }
