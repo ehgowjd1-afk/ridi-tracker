@@ -2869,6 +2869,7 @@ function aspectCard(data) {
       anyEx = true;
       row.classList.add("hasex");
       var box = el("div", "aspex hidden");
+      if (t < 10) box.appendChild(el("div", "exh", "언급이 " + t + "건뿐이라 참고용으로만 보세요"));
       if (reps.length) {
         box.appendChild(el("div", "exh", "많이 나온 말"));
         reps.forEach(function (r) {

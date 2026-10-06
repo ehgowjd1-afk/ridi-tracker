@@ -20,7 +20,8 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.RABSA = api;
 })(this, function () {
-  var VERSION = "3";   // 3: 많이 나온 말(요소·감성 짝 집계), 가까운 감성단어 연결, '지루할 틈이 없다' 반전
+  var VERSION = "4";   // 4: 활용형 합침(예뻐→예쁘…), 대표문장=완결된 짧은 문장, '싫어하는'(취향) 제외
+  // 3:   // 3: 많이 나온 말(요소·감성 짝 집계), 가까운 감성단어 연결, '지루할 틈이 없다' 반전
 
   function S(s) { return s.split(/\s+/).filter(Boolean); }
 
@@ -78,7 +79,7 @@
   // 한 절의 감성: 감성 단어마다 {w: 단어, s: +1/-1, i: 위치}를 모으고, 많은 쪽이 절의 극성.
   // (모든 가림 처리는 글자 수를 그대로 두므로 i 는 원래 절의 위치와 같다)
   function polarityDetail(cl) {
-    var m = cl.replace(/좋아하|좋아해|좋아할|좋아함/g, "▦▦▦");   // '좋아하는'(취향)은 평가 아님
+    var m = cl.replace(/좋아하|좋아해|좋아할|좋아함|싫어하|싫어해|싫어할|싫어함/g, "▦▦▦");   // '좋아하는/싫어하는'(취향)은 평가 아님
     m = m.replace(narrativeRe, function (s) { return new Array(s.length + 1).join("▦"); });
     var hits = [], i;
 
@@ -178,9 +179,9 @@
     return { total: 0, used: 0, aspects: {}, examples: {}, phr: {}, kwf: {}, stars: {}, months: {} };
   }
 
-  function cleanClause(cl) {
+  function cleanClause(cl, min) {
     var c = cl.replace(/\s+/g, " ").trim();
-    if (c.length < 6) return "";
+    if (c.length < (min || 6)) return "";
     if (c.length > 90) c = c.slice(0, 88) + "…";
     return c;
   }
@@ -198,11 +199,25 @@
   }
 
   // 많이 나온 말: (요소단어, 감성단어) 짝마다 건수를 세고, 대표 문장은 가장 짧은(=흔한 말 그대로인) 것 → 같으면 공감 많은 것
+  // 같은 말의 활용형은 하나로 센다 ('예뻐요/예쁜/예쁘고' → 예쁘)
+  var SAME = { "예뻐": "예쁘", "예쁜": "예쁘", "이뻐": "예쁘", "이쁜": "예쁘", "이쁘": "예쁘", "귀여": "귀엽", "기엽": "귀엽",
+    "사랑스러": "사랑스럽", "아름다": "아름답", "멋진": "멋지", "멋져": "멋지", "멋있": "멋지", "재미있": "재밌", "재미나": "재밌",
+    "잼나": "재밌", "흥미로": "흥미", "흥미진진": "흥미", "아쉬": "아쉽", "싫어": "싫", "싫다": "싫", "싫었": "싫", "매력있": "매력적" };
+  function sameWord(w) { var m = /^(.*?)( 없음| 아님)?$/.exec(w); return (SAME[m[1]] || m[1]) + (m[2] || ""); }
   function phraseKey(kw, w) {
     if (!w) return kw;
+    w = sameWord(w);
     var base = w.replace(/ (없음|아님)$/, "");
     if (base.indexOf(kw) === 0 || kw.indexOf(base) === 0) return w;   // '재밌·재밌' 같은 겹침은 하나로
     return kw + "·" + w;
+  }
+  // 대표 문장 비교: 끝까지 완결된 문장(…요/다/음/함/네/ㅋ/ㅠ 등으로 끝남) > 짧은 것 > 공감 많은 것
+  var DONE_RE = /[요다음함네죠임듯ㅋㅎㅠㅜ!~♡♥]$/;
+  function repBetter(c, lk, old, oldLk) {
+    var a = DONE_RE.test(c) ? 0 : 1, b = DONE_RE.test(old) ? 0 : 1;
+    if (a !== b) return a < b;
+    if (c.length !== old.length) return c.length < old.length;
+    return lk > oldLk;
   }
   function keepPhrase(agg, key, pol, kw, w, c, likes, date) {
     var slot = agg.phr[key] || (agg.phr[key] = { p: {}, n: {} });
@@ -211,7 +226,7 @@
     var e = bucket[k] || (bucket[k] = [0, "", -1, ""]);
     e[0]++;
     var lk = likes || 0;
-    if (c && (!e[1] || c.length < e[1].length || (c.length === e[1].length && lk > e[2]))) { e[1] = c; e[2] = lk; e[3] = date || ""; }
+    if (c && (!e[1] || repBetter(c, lk, e[1], e[2]))) { e[1] = c; e[2] = lk; e[3] = date || ""; }
   }
 
   // 리뷰 한 건을 집계에 더한다 (Actions의 이어받기 계산도 같은 함수를 쓴다)
@@ -229,9 +244,9 @@
     pairs.forEach(function (p) {
       var s = agg.aspects[p[0]] || (agg.aspects[p[0]] = [0, 0]);
       if (p[1] > 0) s[0]++; else s[1]++;
-      var c = cleanClause(p[2]);
-      keepExample(agg, p[0], p[1], c, r.likes, at.slice(0, 10));
-      keepPhrase(agg, p[0], p[1], p[3], p[4], c, r.likes, at.slice(0, 10));
+      keepExample(agg, p[0], p[1], cleanClause(p[2]), r.likes, at.slice(0, 10));
+      // 많이 나온 말의 대표 문장은 '재밌어요'처럼 짧은 완결 문장도 될 수 있게 4글자부터
+      keepPhrase(agg, p[0], p[1], p[3], p[4], cleanClause(p[2], 4), r.likes, at.slice(0, 10));
     });
   }
 
