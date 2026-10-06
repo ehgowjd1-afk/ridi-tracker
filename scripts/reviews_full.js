@@ -424,10 +424,10 @@ async function main() {
       const age = daysSince(state.checked[id]);
       job.age = age;
       if (args.only) { todo.full.push(job); continue; }
-      if (age < 1) continue;                          // 오늘 이미 시도한 작품(성공·실패 모두)은 다시 안 함
       const f = state.failed[id];
-      if (f && daysSince(f.at) < Math.min(Math.pow(2, f.n - 1), 30)) { backoff++; continue; }  // 연달아 실패하면 며칠 쉼
-      if (!isFull(old, id)) todo.full.push(job);
+      if (f && daysSince(f.at) < Math.min(Math.pow(2, f.n - 1), 30)) { backoff++; continue; }  // 실패하면 그날은 쉬고, 연달아 실패하면 며칠 쉼
+      if (!isFull(old, id)) todo.full.push(job);     // 처음이거나 엔진 버전이 바뀐 작품은 같은 날이라도 다시 계산
+      else if (age < 1) continue;                     // 분석이 최신이고 오늘 이미 확인한 작품은 다시 안 함
       else if (job.main <= 30) todo.hot.push(job);
       else if ((job.rank <= 200 && age >= 3) || age >= 14) todo.refresh.push(job);
     }
