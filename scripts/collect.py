@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ridi import config, details, events as events_mod, rankings, reviews as reviews_mod
+from ridi import config, details, events as events_mod, rankings
 from ridi.client import RidiClient, RidiError
 from ridi.storage import Store
 
@@ -205,29 +205,6 @@ def pick_refetch_targets(store, meta, books, tables, limit):
     return [bid for _, bid in found[:limit]], len(found)
 
 
-def pick_review_targets(meta, books, tables, limit, cell_of):
-    """리뷰를 가져올 작품을 고른다 — 오래 안 본 것 + 상위권 위주.
-
-    이미 상세페이지를 한 번 열어본 작품만 고른다. 리뷰를 읽으려면 상세페이지에서
-    얻는 '리뷰 셀 ID'가 필요한데, 리뷰 때문에 무거운 상세페이지를 또 여는 순간
-    리디가 요청 과다로 막아버리기 때문이다. (2026-08-22에 실제로 막혔음)
-
-    셀 ID가 없는 작품은 아예 후보에서 뺀다. 빼지 않으면 리뷰를 한 번도 안 본(=맨 앞에 서는)
-    셀 ID 없는 작품이 상한을 다 차지해서, 정작 리뷰는 0건이 된다. (2026-09-08~10-04)
-    """
-    ranks = best_ranks(tables)          # 전체 랭킹 기준 (e북에는 '오늘의 베스트'가 없다)
-    seen = meta.get("reviews", {})
-    details_seen = meta.get("details", {})
-
-    scored = []
-    for bid, rank in ranks.items():
-        if bid not in books or bid not in details_seen or not cell_of(bid):
-            continue
-        scored.append((seen.get(bid, ""), rank, bid))
-    scored.sort()  # 한 번도 안 본 것("") 먼저, 그 다음 오래된 것, 그 안에서 상위권
-    return [bid for _, _, bid in scored[:limit]]
-
-
 # ---------------------------------------------------------------- 메인
 def main():
     ap = argparse.ArgumentParser(description="리디 랭킹·리뷰·이벤트 수집기")
@@ -412,56 +389,12 @@ def main():
         print("\n[4/5] 작품 상세 건너뜀")
 
     # --- 5. 리뷰 ---
+    # 리뷰는 이제 scripts/reviews_full.js("리뷰·별점 전체 수집" 워크플로)가 맡는다:
+    # 구매자 리뷰를 전부 받아 요소별 반응까지 분석해 docs/data/reviews 에 저장한다.
+    # 여기서 또 쓰면 그 결과(analysis)를 옛 형식으로 덮어쓰므로, 이 수집기는 리뷰를 건드리지 않는다.
+    # (--skip-reviews / --max-reviews 옵션은 기존 워크플로 호환을 위해 받기만 한다)
     review_stats = {"books": 0, "added": 0}
-    if not args.skip_reviews and args.max_reviews > 0:
-        # 리뷰를 읽으려면 상세페이지에서 얻은 '리뷰 셀 ID'가 필요하다.
-        # 여기서는 이미 저장해 둔 것만 쓴다 — 리뷰 때문에 상세페이지를 새로 열면
-        # 요청이 두 배가 되어 리디가 막아버린다.
-        cells = {}
-
-        def cell_of(bid):
-            if bid not in cells:
-                cid = (detail_map.get(bid) or {}).get("review_cell_id")
-                if not cid:
-                    saved = store.read("books", f"{bid}.json", default={}) or {}
-                    cid = saved.get("review_cell_id")
-                cells[bid] = cid
-            return cells[bid]
-
-        picked = pick_review_targets(meta, books, tables, args.max_reviews, cell_of)
-        no_cell = sum(1 for bid in cells if not cells[bid])
-        print(f"\n[5/5] 리뷰 수집 — {len(picked)}작품 (작품당 최대 {config.REVIEWS_PER_BOOK}건)"
-              + (f" / 리뷰 ID를 아직 몰라서 뺀 작품 {no_cell}건" if no_cell else ""))
-        for i, bid in enumerate(picked, 1):
-            cell_id = cell_of(bid)
-            fresh = reviews_mod.fetch_reviews(client, bid, cell_id)
-            meta["reviews"][bid] = date
-            if not fresh:
-                continue
-            existing = store.read("reviews", f"{bid}.json", default={}) or {}
-            merged, added = reviews_mod.merge_reviews(existing.get("reviews", []), fresh)
-            history = (existing.get("history") or [])
-            if not history or history[-1].get("date") != date:
-                history = history + [{"date": date, "count": len(merged)}]
-            else:
-                history[-1]["count"] = len(merged)
-            store.write({
-                "id": bid,
-                "title": books.get(bid, {}).get("title", ""),
-                "updated_at": now_kst(),
-                "count": len(merged),
-                "history": history,
-                "reviews": merged,
-            }, "reviews", f"{bid}.json")
-            review_stats["books"] += 1
-            review_stats["added"] += added
-            title = books.get(bid, {}).get("title", bid)[:24]
-            print(f"  [{i}/{len(picked)}] {title:<26} 새 리뷰 {added:>3}건 (누적 {len(merged)})")
-            if review_stats["books"] % 25 == 0:
-                save_progress(store, meta, f"리뷰 {review_stats['books']}작품까지")
-        print(f"  → {review_stats['books']}작품 / 새 리뷰 {review_stats['added']}건")
-    else:
-        print("\n[5/5] 리뷰 건너뜀")
+    print("\n[5/5] 리뷰 — '리뷰·별점 전체 수집'(reviews_full.js)이 맡으므로 건너뜀")
 
     # --- 저장 ---
     print("\n저장 중...")
