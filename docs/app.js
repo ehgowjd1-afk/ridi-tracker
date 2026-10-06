@@ -1987,15 +1987,42 @@ function openBook(id, ctxKey) {
     })),
     D.events ? Promise.resolve(D.events)
       : softJSON("data/events/latest.json").then(function (j) { D.events = (j && j.events) || []; return D.events; }),
-    loadAnalysis()
+    loadAnalysis(),
+    // 순위 밖 작품까지 매일 모은 별점 수 (작품 ID 끝 두 자리로 나눈 작은 파일) — 없으면 null
+    Promise.all(months.map(function (m) {
+      return softJSON("data/rc/" + m + "/" + rcShard(id) + ".json");
+    }))
   ]).then(function (r) {
-    drawBook(id, r[0], r[1], r[2].filter(Boolean), ctxKey);
+    drawBook(id, r[0], r[1], r[2].filter(Boolean), ctxKey, r[5].filter(Boolean));
   });
 }
 
 function closeSheet() {
   $("#sheet").classList.add("hidden");
   document.body.style.overflow = "";
+}
+
+// 전 작품 별점 파일(data/rc/<월>/<NN>.json)의 칸 번호 — 작품 ID 끝 두 자리.
+// scripts/reviews_full.js 의 rcShard 와 같아야 한다.
+function rcShard(id) { var s = String(id); return ("0" + s.slice(-2)).slice(-2); }
+
+// 두 날짜별 시리즈를 합친다: 같은 날은 a(랭킹 기록)를 우선, 없으면 b(전 작품 별점)로 채움
+function mergeSeries(a, b) {
+  var byDate = {};
+  (b.pts || []).forEach(function (p) { if (!p.missing) byDate[p.d] = p.v; });
+  (a.pts || []).forEach(function (p) { if (!p.missing && p.v !== null) byDate[p.d] = p.v; else if (!(p.d in byDate) && !p.missing) byDate[p.d] = null; });
+  // 값이 있는 첫날~마지막날만 그린다 (순위 밖 작품은 앞쪽 수십 일이 비어 그래프가 한쪽에 쏠리므로)
+  var days = Object.keys(byDate).filter(function (d) { return byDate[d] !== null; }).sort();
+  if (!days.length) return { pts: [], gaps: 0 };
+  var pts = [], gaps = 0;
+  var cur = new Date(days[0] + "T00:00:00Z"), end = new Date(days[days.length - 1] + "T00:00:00Z");
+  while (cur <= end) {
+    var key = cur.toISOString().slice(0, 10);
+    if (key in byDate) pts.push({ d: key, v: byDate[key] });
+    else { pts.push({ d: key, v: null, missing: true }); gaps++; }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return { pts: pts, gaps: gaps };
 }
 
 // 상세 모달의 키워드 태그를 누르면 → 키워드 탭으로 이동해
@@ -2027,7 +2054,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") closeSheet();
 });
 
-function drawBook(id, detail, reviewData, months, ctxKey) {
+function drawBook(id, detail, reviewData, months, ctxKey, rcMonths) {
   var b = D.latest.books[id] || (D.catalog && D.catalog[id]) || {};
   var body = $("#sheetBody");
   body.innerHTML = "";
@@ -2079,7 +2106,10 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
   // 평균 별점(4.9x)은 거의 안 변해서 추이로 의미가 없다. 대신 별점(참여) 개수가
   // 며칠간 얼마나 늘었는지를 보여준다. 값이 늘수록 위로 올라간다(invert 안 함).
   // 리뷰 보상 이벤트 기간에는 별점이 부풀었다가 마감 뒤 꺾이므로 같은 색 구간을 깐다.
-  var countSeries = collectSeries(months, function (h) { return (h.count || {})[id]; });
+  // 별점 수: 순위에 있던 날은 랭킹 기록, 순위 밖이었던 날은 전 작품 별점 수집(rc)으로 채운다
+  var countSeries = mergeSeries(
+    collectSeries(months, function (h) { return (h.count || {})[id]; }),
+    collectSeries(rcMonths || [], function (h) { return (h.count || {})[id]; }));
   var cPts = countSeries.pts.filter(function (p) { return p.v !== null; });
   if (cPts.length >= 2) {
     var rc = el("div", "card");
@@ -2194,7 +2224,7 @@ function drawBook(id, detail, reviewData, months, ctxKey) {
   }
 
   // ── 리뷰 요소별 반응 (작화·스토리·캐릭터… 긍정/부정) ──
-  var ac = aspectCard(reviewData && reviewData.reviews);
+  var ac = aspectCard(reviewData);
   if (ac) body.appendChild(ac);
 
   // ── 리뷰 분석 ──
@@ -2531,9 +2561,11 @@ function lineChart(pts, opt) {
   });
 
   if (pts.length) {
-    svg.appendChild(mk("text", { x: L, y: H - 8 }, pts[0].d.slice(5)));
+    // 기본은 날짜(MM-DD). 월 단위 그래프처럼 다른 라벨이 필요하면 opt.label 로 바꾼다.
+    var lab = opt.label || function (d) { return d.slice(5); };
+    svg.appendChild(mk("text", { x: L, y: H - 8 }, lab(pts[0].d)));
     var last = pts[pts.length - 1];
-    svg.appendChild(mk("text", { x: W - R, y: H - 8, "text-anchor": "end" }, last.d.slice(5)));
+    svg.appendChild(mk("text", { x: W - R, y: H - 8, "text-anchor": "end" }, lab(last.d)));
   }
   return svg;
 }
@@ -2751,176 +2783,43 @@ function promoCard(promos, shifts) {
 }
 
 // ── 리뷰 분석 ──
-var STOPWORDS = ("그리고 그래서 하지만 그런데 그러나 정말 진짜 너무 아주 완전 조금 약간 다시 계속 " +
-  "이거 저거 그거 여기 저기 거기 이건 그건 저건 하나 진행 작품 소설 웹툰 내용 이야기 스토리 " +
-  "생각 느낌 부분 정도 때문 그냥 역시 이제 아직 지금 나중 처음 마지막 다음 이번 저희 우리 " +
-  "제가 저는 나는 근데 인데 라고 라는 하는 되는 있는 없는 같은 많은 좋은 보고 읽고 " +
-  "합니다 했어요 해요 이런 저런 어떤 무슨 진심 완전히 굉장히 엄청 그램 편이 작가 작가님 " +
-  "감사 감사합니다 기대 다음화 리디 소장 대여 결제 무료 최고 존잼 잘봤 잘보 재밌 재미 " +
-  "이렇게 그렇게 저렇게 어떻게 않고 않은 않아 않네 읽었 봤어 봤네 좋아 좋네 제일 시작 " +
-  "정주행 다음편 담편 계속 얼른 빨리 이건 그건 진짜로 완전 그저 여기 아마 혹시 " +
-  "작가님 님의 작품이 소설이 웹툰이 이번화 회차 연재 결말 초반 후반 중반"
-  ).split(/\s+/).filter(Boolean);
-var STOPSET = {};
-STOPWORDS.forEach(function (w) { STOPSET[w] = 1; });
-
-function reviewKeywords(reviews, topN) {
-  var freq = {};
-  reviews.forEach(function (r) {
-    var text = (r.content || "");
-    var tokens = text.split(/[^가-힣A-Za-z0-9]+/);
-    var seen = {};
-    tokens.forEach(function (raw) {
-      var w = raw.trim();
-      if (w.length < 2 || w.length > 8) return;
-      // 조사·어미를 대충 떼어낸다 (완벽하진 않지만 경향 파악에는 충분)
-      w = w.replace(/(이었|였|하는|해서|하고|한테|에게|에서|으로|까지|부터|이라|라서|네요|어요|아요|습니다|입니다|는데|지만|면서|다가|이다|하다)$/, "");
-      w = w.replace(/(은|는|이|가|을|를|의|에|도|만|과|와|랑|께|요)$/, "");
-      if (w.length < 2 || STOPSET[w]) return;
-      if (/^\d/.test(w)) return;                       // "200회" 같은 숫자 표현 제외
-      if (/(작가님|작가)$/.test(w) && w.length > 3) return;
-      if (seen[w]) return;            // 한 리뷰에서 같은 단어는 한 번만
-      seen[w] = 1;
-      freq[w] = (freq[w] || 0) + 1;
-    });
-  });
-  return Object.keys(freq).map(function (w) { return [w, freq[w]]; })
-    .filter(function (p) { return p[1] >= 2; })
-    .sort(function (a, b) { return b[1] - a[1]; })
-    .slice(0, topN || 24);
+// 분석 엔진은 rabsa.js (사이트와 Actions가 함께 쓴다).
+// 리뷰 파일에 analysis(Actions가 구매자 리뷰 '전량'으로 계산)가 있으면 그것을 쓰고,
+// 아직 전량 분석 전인 작품은 파일에 든 최근 리뷰로 즉석 계산한다.
+function reviewAgg(data) {
+  if (!data) return null;
+  if (data.analysis) return { agg: data.analysis, full: true };
+  if (data.reviews && data.reviews.length) return { agg: RABSA.analyze(data.reviews), full: false };
+  return null;
 }
 
-// ── 리뷰 '요소별 반응' 분석 (절 단위 감성) ─────────────────────
-// 리디 리뷰는 별점이 거의 전부 5점이라 별점으론 '어떤 요소가 긍/부정'인지 알 수 없다.
-// 그래서 리뷰 '본문'을 절(clause) 단위로 쪼개, 각 절에서 요소 키워드 + 감성 표현을 읽는다.
-//   예) "능글 남주 좋음.. 대신 일러가 좀 아쉽네요" → 캐릭터=긍정, 그림=부정
-// 사전은 실제 리뷰 100여 건을 분석해 만들었고, 오탐(선구매·기대평, '없이/않' 접미부정,
-// '비추천'⊂'추천', '씬' 단독, 반어 등)을 걸러내도록 규칙을 넣었다. 대략적 경향 파악용.
-var RABSA = (function () {
-  function S(s) { return s.split(/\s+/).filter(Boolean); }
-  var aspects = [
-    { key: "art",       label: "그림·작화", kw: S("그림체 그림이 그림을 그림은 그림도 작화 작화가 일러 일러스트 삽화 삽화본 표지 화풍 채색 색감 비주얼 화질 연출 눈호강") },
-    { key: "story",     label: "스토리·전개", kw: S("스토리 전개 서사 빌드업 떡밥 복선 반전 개연성 짜임새 흐름 템포 호흡 완급조절 급전개 급발진 급마무리 늘어지 루즈 질질 지지부진 흐지부지 산만 중구난방 뜬금 제자리걸음 무한반복 전개속도 고구마 사이다 답답 속터지 속시원 각색 삽질") },
-    { key: "character", label: "캐릭터 매력", kw: S("남주 여주 주인공 캐릭터 캐릭 인물 캐붕 매력 매력적 무매력 매력없 입체적 평면적 성격 집착 다정 능글 까칠 민폐 찌질 찐따 호구 멘헤라 금쪽이 싸가지 수동적 멍청 햇살 회피형 공수 미남수 미인수 떡대수 연상수 연하수 연상공 연하공 집착공 집착수 까칠수 다정공 부둥") },
-    { key: "chemistry", label: "케미·관계", kw: S("케미 캐미 공수조합 관계성 티키타카 밀당 혐관 쌍방구원 투샷 상호작용 찰떡궁합") },
-    { key: "romance",   label: "설렘·로맨스", kw: S("로맨스 설렘 설레 두근 달달 달콤 애틋 간질간질 몽글몽글 순애 절절 애절 러브력 썸 연애 꽁냥") },
-    { key: "immersion", label: "몰입·재미", kw: S("몰입 몰입감 흡입력 흡인력 재미 재밌 꿀잼 존잼 핵잼 개잼 노잼 지루 술술 순삭 정주행 밤새 흥미진진 흥미로 흥미 킬링타임 킬타 도파민 잘읽 안읽") },
-    { key: "writing",   label: "필력·문장", kw: S("필력 문장 문장력 문체 글솜씨 글맛 묘사 서술 대사 독백 번역 번역투 발번역 오타 오탈자 비문 가독성 띄어쓰기 편집 어휘 글빨") },
-    { key: "emotion",   label: "분위기·감성", kw: S("감정선 분위기 감성 여운 먹먹 눈물 울었 울컥 펑펑 감동 신파 잔잔 담백 쓸쓸 외로움 울림") },
-    { key: "humor",     label: "유머·개그", kw: S("개그 유머 드립 말장난 병맛 코믹 코미디 웃기 웃음 유쾌 피식 빵터") },
-    { key: "setting",   label: "세계관·설정", kw: S("세계관 설정 소재 클리셰 트로프 신선 참신 독특 신박 특이 진부 뻔하 전형적 양산형 회빙환 회귀 빙의 역하렘") },
-    { key: "spice",     label: "수위", kw: S("수위 고수위 저수위 19금 꾸금 섹텐 더티토크 야하 야르 꼴리 개꼴 존꼴 노꼴 자극적 적나라 노골적 BDSM 키스씬 베드씬 정사씬 섹슈얼") },
-    { key: "ending",    label: "분량·완결·외전", kw: S("결말 완결 외전 엔딩 마무리 용두사미 급마무리 떡밥회수 분량 단편 장편 권수 짧 휴재 존버 뒷심부족") },
-    { key: "price",     label: "가격·과금", kw: S("가격 정가 가성비 돈값 비싸 과금 환불 돈아깝 시간아깝 캐시아깝") },
-    { key: "author",    label: "작가·전작 신뢰", kw: S("믿고보는 전작 차기작 도장깨기") }
-  ];
-  var positive = S("재밌 재미있 재미나 잼나 꿀잼 존잼 핵잼 개잼 개존잼 대존잼 존맛 맛도리 맛집 맛있 마시써 꿀맛 최고 명작 수작 인생작 띵작 갓작 갓벽 레전드 대작 대박 완벽 만족 흡입력 흡인력 몰입 술술 순삭 흥미 흥미진진 흥미로 매력적 매력있 설레 설렘 두근 달달 달콤 애틋 간질간질 몽글몽글 절절 순애 여운 감동 먹먹 울컥 귀엽 기엽 졸귀 귀염뽀짝 뽀짝 사랑스럽 예쁘 이쁘 깜찍 탄탄 촘촘 짜임새 깔끔 신선 참신 독특 신박 취저 취향저격 입덕 강추 강력추천 츄라이 정주행 밤새 힐링 섹시 쫄깃 찰떡 명불허전 극락 감탄 입체적 독보적 완독 믿고보는 유쾌 웃기 웃음 피식 빵터 미쳤 미친 골때리 죽이네 찰지 완급조절 사이다 눈호강 유죄 재탕 재독 괜찮 ㄱㅊ 볼만 무난 그럭저럭 준수 좋");
-  var posPhrase = ["나쁘지 않", "나쁘진 않", "싫지 않", "다시 읽", "또 읽", "잘 읽히", "술술 읽", "손을 놓을 수 없", "손을 못 놓",
-    "매력 있", "매력이 있", "매력도 있", "매력 넘", "재미 있", "흥미 있", "케미 있"];
-  var negative = S("아쉽 아쉬 지루 루즈 질질 늘어지 고구마 용두사미 뒷심부족 엔딩조루 억지 작위 유치 오글 오그라들 노잼 재미없 잼없 답답 속터지 비추 하차 구매방지 재구매방지 재대여방지 방지용 작붕 캐붕 발번역 번역투 오타 오탈자 비문 산만 어수선 중구난방 난잡 평면적 돌려막기 자기복제 급전개 급발진 급마무리 급작스럽 뜬금 별로 별루 최악 실망 짜증 불호 난해 역하 현타 양산형 김빠 식었 묵은지 무매력 매력없 멍청 바보 찌질 찐따 민폐 호구 뇌절 밍숭맹숭 밍밍 슴슴 싱겁 허무 허술 노답 똥망 대실패 돈아깝 시간아깝 캐시아깝 짜치 뻔하 진부 전형적 질리 기빨리 꾸역꾸역 얼렁뚱땅 휘리릭 후다닥 지지부진 무한반복 흐지부지 올드 촌스럽 부자연스럽 어색 수준미달 짬뽕 짜집기 거슬리 극혐 쓰레기 저질 저급 지저분 더럽 지뢰 심심 흐린눈 속지마 평점에속 별점에낚 어이없 어처구니 떨어지 애매 어정쩡 허접 힘빠지 맥빠 삽질");
-  var negPhrase = ["안 읽히", "안읽히", "안 넘어가", "손이 안 가", "손을 놓았", "읽기 싫",
-    "매력 없", "매력이 없", "재미 없", "흥미 없"];
-  // 절(clause) 분리: 문장부호 + 역접 연결어 (치고는/치곤만, 동사 '-치고'는 제외)
-  var splitRe = /[\n\r.!?…·,、;:~～]+|는데|은데|ㄴ데|지만|하지만|그런데|근데|대신|다만|그래도|빼면|빼곤|빼고|면서도|반면|그럼에도|치고는|치곤/g;
-  // 추측·선구매(기대평)성 절은 '경험 평가'가 아니므로 극성에서 제외
-  var conjectureRe = /것\s?같|듯|겠|예정|았으면|었으면|면\s?좋겠|길\s?바|기대(돼|된|됩|되|하|함)|읽어\s?볼|볼게|잘\s?읽겠|읽을/;
-  var preReadRe = /선리뷰|선구매|선결제|미보후|미리보기\s?후|구매합니다|지릅니다|지름신|믿고\s?삼|믿고\s?산다|믿고\s?구매|잘\s?읽겠|읽고\s?수정|읽어볼게|읽어볼께|읽을\s?예정|기대평/;
-  var readRe = /봤|읽었|완독|하차|보는\s?중|보고\s?있|읽는\s?중|읽고\s?있|재밌었|재미있었|잘\s?봤|다\s?봄|정주행/;
-  return { aspects: aspects, positive: positive, posPhrase: posPhrase, negative: negative,
-    negPhrase: negPhrase, splitRe: splitRe, conjectureRe: conjectureRe, preReadRe: preReadRe, readRe: readRe };
-})();
-
-// 한 절의 극성: +1 긍정 / -1 부정 / 0 판단 불가
-function rabsaPolarity(cl) {
-  var L = RABSA;
-  var m = cl.replace(/좋아하|좋아해|좋아할|좋아함/g, "▦▦▦");   // '좋아하는'(취향)은 평가 아님
-  var pos = 0, neg = 0, i, w, after, before;
-  function mask(str, idx, len, ch) { return str.substring(0, idx) + new Array(len + 1).join(ch) + str.substring(idx + len); }
-
-  // 1) 부정어 (뒤에 '없이/않/덜' 등이 붙으면 칭찬으로 반전)
-  L.negative.forEach(function (ww) {
-    i = m.indexOf(ww);
-    while (i >= 0) {
-      after = m.substr(i + ww.length, 4);
-      before = m.substr(Math.max(0, i - 2), 2);
-      if (/없이|없고|없는|없음|없어|없네|없었|않|덜/.test(after) || /덜/.test(before)) pos++; else neg++;
-      m = mask(m, i, ww.length, "▦");
-      i = m.indexOf(ww);
-    }
-  });
-  L.negPhrase.forEach(function (ph) { while (m.indexOf(ph) >= 0) { neg++; m = m.replace(ph, "▦"); } });
-
-  // 2) 긍정어 (뒤에 '않/없' 또는 앞에 홀로 선 '안/못' → 부정으로 반전)
-  L.positive.forEach(function (ww) {
-    i = m.indexOf(ww);
-    while (i >= 0) {
-      after = m.substr(i + ww.length, 4);
-      before = m.substring(0, i);
-      var negated = /^(지|진|지도|긴)?\s*(않|안|없)/.test(after) || /(^|\s)(안|못)\s*$/.test(before.slice(-4));
-      if (negated) neg++; else pos++;
-      m = mask(m, i, ww.length, "♦");
-      i = m.indexOf(ww);
-    }
-  });
-  L.posPhrase.forEach(function (ph) { while (m.indexOf(ph) >= 0) { pos++; m = m.replace(ph, "♦"); } });
-
-  if (pos > neg) return 1;
-  if (neg > pos) return -1;
-  return 0;
-}
-
-// 작품 리뷰 전체 → 요소별 긍정/부정 집계
-function rabsaAnalyze(reviews) {
-  var L = RABSA;
-  var res = {};
-  L.aspects.forEach(function (a) { res[a.key] = { key: a.key, label: a.label, pos: 0, neg: 0 }; });
-  var used = 0, total = 0;
-  (reviews || []).forEach(function (r) {
-    var text = (r && r.content || "").trim();
-    total++;
-    if (text.length < 4) return;
-    if (L.preReadRe.test(text) && !L.readRe.test(text)) return;   // 선구매·기대평 통째 제외
-    var clauses = text.split(L.splitRe);
-    var got = false;
-    clauses.forEach(function (cl) {
-      if (cl.replace(/\s/g, "").length < 2) return;
-      if (L.conjectureRe.test(cl)) return;                        // 추측성 절 제외
-      var pol = rabsaPolarity(cl);
-      if (!pol) return;
-      L.aspects.forEach(function (a) {
-        for (var k = 0; k < a.kw.length; k++) {
-          if (cl.indexOf(a.kw[k]) >= 0) {
-            if (pol > 0) res[a.key].pos++; else res[a.key].neg++;
-            got = true;
-            break;
-          }
-        }
-      });
-    });
-    if (got) used++;
-  });
-  var list = L.aspects.map(function (a) { return res[a.key]; })
-    .filter(function (a) { return a.pos + a.neg > 0; })
+function aspectList(agg) {
+  return RABSA.aspects.map(function (a) {
+    var s = (agg.aspects || {})[a.key] || [0, 0];
+    return { key: a.key, label: a.label, pos: s[0], neg: s[1] };
+  }).filter(function (x) { return x.pos + x.neg >= 2; })
     .sort(function (a, b) { return (b.pos + b.neg) - (a.pos + a.neg); });
-  return { list: list, used: used, total: total };
 }
 
-// '요소별 반응' 카드
-function aspectCard(reviews) {
-  var a = rabsaAnalyze(reviews);
-  var shown = a.list.filter(function (x) { return x.pos + x.neg >= 2; });
+// '요소별 반응' 카드 — 어떤 요소(작화·스토리·캐릭터…)가 호평/아쉬움인지
+function aspectCard(data) {
+  var a = reviewAgg(data);
+  if (!a) return null;
+  var agg = a.agg, shown = aspectList(agg);
   if (!shown.length) return null;
 
   var card = el("div", "card");
   var h = el("h3");
-  h.innerHTML = "요소별 반응 <span class='r'>리뷰 " + num(a.total) + "건 중 " + num(a.used) + "건에서 뽑음</span>";
+  h.innerHTML = "요소별 반응 <span class='r'>" + (a.full
+    ? "구매자 리뷰 " + num(agg.total) + "건 전체 · " + num(agg.used) + "건에서 뽑음"
+    : "최근 리뷰 " + num(agg.total) + "건 중 " + num(agg.used) + "건에서 뽑음") + "</span>";
   card.appendChild(h);
 
   // 한 줄 요약: 호평/아쉬움 요소
   var strongPos = shown.filter(function (x) { return x.pos >= 3 && x.pos >= x.neg * 2; })
     .sort(function (x, y) { return y.pos - x.pos; }).slice(0, 3);
-  var strongNeg = shown.filter(function (x) { return x.neg >= 2 && x.neg >= x.pos; })
-    .sort(function (x, y) { return y.neg - x.neg; }).slice(0, 3);
+  var strongNeg = shown.filter(function (x) { return x.neg >= 2 && x.neg >= x.pos * 0.5; })
+    .sort(function (x, y) { return (y.neg / (y.pos + y.neg)) - (x.neg / (x.pos + x.neg)); }).slice(0, 3);
   if (strongPos.length || strongNeg.length) {
     var sum = el("p", "covernote");
     var parts = [];
@@ -2930,8 +2829,8 @@ function aspectCard(reviews) {
     card.appendChild(sum);
   }
 
-  var wrap = el("div", "asp");
-  shown.slice(0, 11).forEach(function (x) {
+  var wrap = el("div", "asp"), anyEx = false;
+  shown.slice(0, 12).forEach(function (x) {
     var t = x.pos + x.neg;
     var row = el("div", "asprow");
     row.appendChild(el("div", "asplabel", x.label));
@@ -2940,44 +2839,81 @@ function aspectCard(reviews) {
     var n = el("div", "aspneg"); n.style.width = (x.neg / t * 100) + "%";
     bar.appendChild(p); bar.appendChild(n);
     row.appendChild(bar);
-    row.appendChild(el("div", "aspnum", "👍" + x.pos + " 👎" + x.neg));
+    row.appendChild(el("div", "aspnum", "👍" + num(x.pos) + " 👎" + num(x.neg)));
     wrap.appendChild(row);
+
+    // 막대를 누르면 실제 리뷰 문장(공감 많은 것)이 펼쳐진다
+    var ex = (agg.examples || {})[x.key];
+    if (ex && ((ex.p && ex.p.length) || (ex.n && ex.n.length))) {
+      anyEx = true;
+      row.classList.add("hasex");
+      var box = el("div", "aspex hidden");
+      (ex.p || []).forEach(function (e) { box.appendChild(el("div", "exp", "👍 “" + e[0] + "”")); });
+      (ex.n || []).forEach(function (e) { box.appendChild(el("div", "exn", "👎 “" + e[0] + "”")); });
+      row.addEventListener("click", function () { box.classList.toggle("hidden"); });
+      wrap.appendChild(box);
+    }
   });
   card.appendChild(wrap);
 
-  var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. ";
-  if (a.used < 10) note += "뽑힌 리뷰가 적어 참고용으로만 보세요.";
-  else note += "초록=호평, 빨강=아쉬움 언급 횟수.";
+  var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 빨강=아쉬움 언급 횟수.";
+  if (anyEx) note += " 막대를 누르면 실제 리뷰 문장이 나와요.";
+  if (!a.full) note += " 아직 최근 리뷰만으로 계산했어요 — 구매자 리뷰 전체 분석은 순위 높은 작품부터 차례로 진행 중입니다.";
+  if (agg.used < 10) note += " 뽑힌 리뷰가 적어 참고용으로만 보세요.";
   card.appendChild(el("p", "hint", note));
   return card;
 }
 
 function reviewCard(data) {
   var card = el("div", "card");
-  if (!data || !data.reviews || !data.reviews.length) {
+  var a = reviewAgg(data);
+  var rs = (data && data.reviews) || [];
+  if (!a) {
     card.appendChild(el("h3", "", "리뷰"));
     card.appendChild(el("p", "hint", "이 작품의 리뷰는 아직 모으지 않았습니다.\n리뷰는 순위가 높은 작품부터 차례로 모읍니다."));
     return card;
   }
+  var agg = a.agg;
+  if (a.full && !agg.total) {
+    card.appendChild(el("h3", "", "리뷰"));
+    card.appendChild(el("p", "hint", "아직 구매자 리뷰가 없습니다. (리뷰 분석은 구매자 리뷰만 봅니다)"));
+    return card;
+  }
 
-  var rs = data.reviews;
   var h = el("h3");
-  h.innerHTML = "리뷰 분석 <span class='r'>모아둔 " + num(rs.length) + "건 기준</span>";
+  h.innerHTML = "리뷰 분석 <span class='r'>" + (a.full
+    ? "구매자 리뷰 " + num(agg.total) + "건 기준"
+    : "모아둔 " + num(rs.length) + "건 기준") + "</span>";
   card.appendChild(h);
 
   // 긍정/부정 (별점 기준 — 지어내지 않고 실제 점수로 계산)
-  var pos = rs.filter(function (r) { return r.rating >= 4; }).length;
-  var neu = rs.filter(function (r) { return r.rating === 3; }).length;
-  var neg = rs.filter(function (r) { return r.rating <= 2; }).length;
-  var bars = el("div", "bars");
-  bars.appendChild(barRow("긍정", pos, rs.length, "pos"));
-  bars.appendChild(barRow("보통", neu, rs.length));
-  bars.appendChild(barRow("부정", neg, rs.length, "neg"));
-  card.appendChild(bars);
-  card.appendChild(el("p", "hint", "별점 4~5점을 긍정, 3점을 보통, 1~2점을 부정으로 계산했습니다."));
+  var st = agg.stars || {};
+  var pos = (st[4] || 0) + (st[5] || 0), neu = st[3] || 0, neg = (st[1] || 0) + (st[2] || 0);
+  var tot = pos + neu + neg;
+  if (tot) {
+    var bars = el("div", "bars");
+    bars.appendChild(barRow("긍정", pos, tot, "pos"));
+    bars.appendChild(barRow("보통", neu, tot));
+    bars.appendChild(barRow("부정", neg, tot, "neg"));
+    card.appendChild(bars);
+    card.appendChild(el("p", "hint", "별점 4~5점을 긍정, 3점을 보통, 1~2점을 부정으로 계산했습니다."));
+  }
 
-  // 리뷰 수 추이
-  if (data.history && data.history.length >= 2) {
+  // 리뷰 수 추이 — 전량 분석 작품은 '작성일 기준 월별 누적'(처음부터의 추이), 아니면 모은 날 기준
+  var mo = agg.months || {}, mkeys = Object.keys(mo).sort();
+  if (a.full && mkeys.length >= 2) {
+    var acc = 0;
+    var mpts = mkeys.map(function (m) { acc += mo[m]; return { d: m, v: acc }; });
+    var mw = el("div", "chartwrap");
+    mw.style.marginTop = "12px";
+    mw.appendChild(lineChart(mpts, {
+      invert: false, fmt: function (v) { return num(Math.round(v)) + "건"; },
+      label: function (d) { return d.slice(2).replace("-", "."); }
+    }));
+    card.appendChild(el("h3", "", "구매자 리뷰 누적 추이"));
+    card.appendChild(mw);
+    card.appendChild(el("p", "hint", "리뷰 날짜 기준 월별 누적이에요 (수정한 리뷰는 수정한 날로 잡힙니다)."));
+  } else if (data.history && data.history.length >= 2) {
     var pts = data.history.map(function (x) { return { d: x.date, v: x.count }; });
     var w = el("div", "chartwrap");
     w.style.marginTop = "12px";
@@ -2987,12 +2923,13 @@ function reviewCard(data) {
   }
 
   // 자주 나오는 말
-  var kws = reviewKeywords(rs);
+  var kws = agg.kw || RABSA.topWords(agg.kwf, 24);
+  kws = kws.slice(0, 24);
   if (kws.length) {
     card.appendChild(el("h3", "", "리뷰에 자주 나오는 말"));
     var tb = el("div", "tags");
     kws.forEach(function (p) {
-      var t = el("span", "tag", p[0] + " " + p[1]);
+      var t = el("span", "tag", p[0] + " " + num(p[1]));
       t.style.fontSize = Math.min(1.05, 0.74 + p[1] / (kws[0][1] * 4)) + "rem";
       tb.appendChild(t);
     });
@@ -3000,21 +2937,23 @@ function reviewCard(data) {
   }
 
   // 최근 리뷰
-  card.appendChild(el("h3", "", "최근 리뷰"));
-  var box = el("div", "reviews");
-  rs.slice(0, 12).forEach(function (r) {
-    var rv = el("div", "rv");
-    var m = el("div", "m");
-    m.appendChild(el("span", "", "★".repeat(Math.max(0, r.rating)) ));
-    m.appendChild(el("span", "", r.user || ""));
-    m.appendChild(el("span", "", (r.at || "").slice(0, 10)));
-    if (r.likes) m.appendChild(el("span", "", "공감 " + r.likes));
-    if (r.buyer) m.appendChild(el("span", "", "구매자"));
-    rv.appendChild(m);
-    rv.appendChild(el("div", "c", r.content || ""));
-    box.appendChild(rv);
-  });
-  card.appendChild(box);
+  if (rs.length) {
+    card.appendChild(el("h3", "", "최근 리뷰"));
+    var box = el("div", "reviews");
+    rs.slice(0, 12).forEach(function (r) {
+      var rv = el("div", "rv");
+      var m = el("div", "m");
+      m.appendChild(el("span", "", "★".repeat(Math.max(0, r.rating || 0))));
+      m.appendChild(el("span", "", r.user || ""));
+      m.appendChild(el("span", "", (r.at || "").slice(0, 10)));
+      if (r.likes) m.appendChild(el("span", "", "공감 " + r.likes));
+      if (r.buyer) m.appendChild(el("span", "", "구매자"));
+      rv.appendChild(m);
+      rv.appendChild(el("div", "c", r.content || ""));
+      box.appendChild(rv);
+    });
+    card.appendChild(box);
+  }
   return card;
 }
 
