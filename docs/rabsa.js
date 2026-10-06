@@ -202,9 +202,10 @@
   // 같은 말의 활용형은 하나로 센다 ('예뻐요/예쁜/예쁘고' → 예쁘)
   var SAME = { "예뻐": "예쁘", "예쁜": "예쁘", "이뻐": "예쁘", "이쁜": "예쁘", "이쁘": "예쁘", "귀여": "귀엽", "기엽": "귀엽",
     "사랑스러": "사랑스럽", "아름다": "아름답", "멋진": "멋지", "멋져": "멋지", "멋있": "멋지", "재미있": "재밌", "재미나": "재밌",
-    "잼나": "재밌", "흥미로": "흥미", "흥미진진": "흥미", "아쉬": "아쉽", "싫어": "싫", "싫다": "싫", "싫었": "싫", "매력있": "매력적" };
+    "잼나": "재밌", "흥미로": "흥미", "흥미진진": "흥미", "아쉬": "아쉽", "싫어": "싫", "싫다": "싫", "싫었": "싫", "매력있": "매력적", "재미": "재밌" };
   function sameWord(w) { var m = /^(.*?)( 없음| 아님)?$/.exec(w); return (SAME[m[1]] || m[1]) + (m[2] || ""); }
   function phraseKey(kw, w) {
+    kw = sameWord(kw);                     // 요소 단어도 같은 말이면 하나로 ('재미' → 재밌)
     if (!w) return kw;
     w = sameWord(w);
     var base = w.replace(/ (없음|아님)$/, "");
@@ -285,6 +286,12 @@
     return out;
   }
 
+  // 이미 저장된 짝 이름도 같은 규칙으로 다시 묶는다 (화면에서 같은 말 합치기용)
+  function normKey(key) {
+    var i = key.indexOf("·");
+    return i < 0 ? phraseKey(key, "") : phraseKey(key.slice(0, i), key.slice(i + 1));
+  }
+
   // 자주 나오는 말 상위 n개 ([[단어, 리뷰수], ...]) — 2번 이상 나온 것만
   function topWords(kwf, n) {
     return Object.keys(kwf || {}).map(function (w) { return [w, kwf[w]]; })
@@ -296,6 +303,6 @@
   return {
     VERSION: VERSION, aspects: aspects, polarity: polarity, polarityDetail: polarityDetail,
     analyzeReview: analyzeReview, tokens: tokens, newAgg: newAgg, addReview: addReview, analyze: analyze,
-    topWords: topWords, packPhr: packPhr, unpackPhr: unpackPhr
+    topWords: topWords, packPhr: packPhr, unpackPhr: unpackPhr, normKey: normKey
   };
 });

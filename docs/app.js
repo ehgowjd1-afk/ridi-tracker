@@ -2858,6 +2858,17 @@ function aspectCard(data) {
     //  ① 많이 나온 말: (요소 단어·감성 단어) 짝이 반복된 횟수 + 가장 흔한 형태의 문장 (2번 이상 나온 것만)
     //  ② 공감 많은 문장: 공감 많은 순 (공감 1개 이상인 것만)
     var ph = phrAll[x.key] || { p: [], n: [] };
+    // 같은 말로 묶이는 짝은 합친다(건수를 더함)
+    var mergeSide = function (arr) {
+      var by = {}, order = [];
+      (arr || []).forEach(function (e) {
+        var k = RABSA.normKey(e[0]);
+        if (!by[k]) { by[k] = [k, e[1], e[2], e[3], e[4]]; order.push(k); }
+        else by[k][1] += e[1];          // 목록이 건수 순이라 먼저 나온(건수 많은) 짝의 대표 문장을 그대로 둔다
+      });
+      return order.map(function (k) { return by[k]; }).sort(function (a, b) { return b[1] - a[1]; });
+    };
+    ph = { p: mergeSide(ph.p), n: mergeSide(ph.n) };
     var reps = (ph.p || []).filter(function (e) { return e[1] >= 2; }).slice(0, 3).map(function (e) { return [1, e]; })
       .concat((ph.n || []).filter(function (e) { return e[1] >= 2; }).slice(0, 2).map(function (e) { return [-1, e]; }));
     var ex = (agg.examples || {})[x.key] || {};
