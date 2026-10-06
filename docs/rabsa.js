@@ -19,7 +19,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.RABSA = api;
 })(this, function () {
-  var VERSION = "1";
+  var VERSION = "2";   // 2: 줄거리 서술(삶·인생이 지루/답답) 오탐 제외
 
   function S(s) { return s.split(/\s+/).filter(Boolean); }
 
@@ -71,8 +71,12 @@
   }
 
   // 한 절의 극성: +1 긍정 / -1 부정 / 0 판단 불가
+  // 줄거리 서술('지루한 삶을 살던 주인공', '인생이 답답했던')은 작품 평가가 아니므로 감성에서 뺀다
+  var narrativeRe = /(삶|인생|일상|생활|하루하루|나날|세상|현실)[이가은는도을를의]?\s?(지루|답답)|(지루|답답)(한|했던|하던|하게)\s?(삶|인생|일상|생활|하루|나날|세상|현실)/g;
+
   function polarity(cl) {
     var m = cl.replace(/좋아하|좋아해|좋아할|좋아함/g, "▦▦▦");   // '좋아하는'(취향)은 평가 아님
+    m = m.replace(narrativeRe, function (s) { return new Array(s.length + 1).join("▦"); });
     var pos = 0, neg = 0, i, after, before;
 
     // 1) 부정어 (뒤에 '없이/않/덜' 등이 붙으면 칭찬으로 반전: '고구마 없이', '지루하지 않')
