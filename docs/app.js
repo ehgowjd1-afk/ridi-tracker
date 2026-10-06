@@ -2793,96 +2793,128 @@ function reviewAgg(data) {
   return null;
 }
 
-function aspectList(agg) {
+function aspectList(agg, detailed) {
+  var src = detailed ? (agg.aspectsD || {}) : (agg.aspects || {});
   return RABSA.aspects.map(function (a) {
-    var s = (agg.aspects || {})[a.key] || [0, 0];
+    var s = src[a.key] || [0, 0];
     return { key: a.key, label: a.label, pos: s[0], neg: s[1] };
   }).filter(function (x) { return x.pos + x.neg >= 2; })
     .sort(function (a, b) { return (b.pos + b.neg) - (a.pos + a.neg); });
 }
 
-// '요소별 반응' 카드 — 어떤 요소(작화·스토리·캐릭터…)가 호평/아쉬움인지
+// 같은 말로 묶이는 '많이 나온 말' 짝은 합친다(건수를 더함, 대표 문장은 건수 많은 쪽 것)
+function mergePhraseSide(arr) {
+  var by = {}, order = [];
+  (arr || []).forEach(function (e) {
+    var k = RABSA.normKey(e[0]);
+    if (!by[k]) { by[k] = [k, e[1], e[2], e[3], e[4]]; order.push(k); }
+    else by[k][1] += e[1];
+  });
+  return order.map(function (k) { return by[k]; }).sort(function (a, b) { return b[1] - a[1]; });
+}
+
+// '요소별 반응' 카드 — 어떤 요소(작화·스토리·캐릭터…)가 호평/아쉬움인지.
+// 리디는 리뷰 이벤트 날 '재밌어요' 같은 한 줄 리뷰가 하루 수백~수천 건 몰리므로,
+// 기본은 '자세한 리뷰'(공백·이모지 빼고 40자 이상) 기준으로 보여주고 '전체'로 바꿔 볼 수 있다.
+// 예시(많이 나온 말·공감 많은 문장)는 늘 자세한 리뷰에서 뽑는다.
 function aspectCard(data) {
   var a = reviewAgg(data);
   if (!a) return null;
-  var agg = a.agg, shown = aspectList(agg);
-  if (!shown.length) return null;
+  var agg = a.agg;
+  if (!aspectList(agg, false).length) return null;
+  var hasD = !!agg.aspectsD;
+  var dN = agg.dTotal || 0;
+  var basis = (hasD && dN >= 20) ? "d" : "all";     // 자세한 리뷰가 너무 적으면 전체 기준으로 시작
 
   var card = el("div", "card");
   var h = el("h3");
-  h.innerHTML = "요소별 반응 <span class='r'>" + (a.full
-    ? "구매자 리뷰 " + num(agg.total) + "건 전체 · " + num(agg.used) + "건에서 뽑음"
-    : "최근 리뷰 " + num(agg.total) + "건 중 " + num(agg.used) + "건에서 뽑음") + "</span>";
   card.appendChild(h);
-
-  // 한 줄 요약. 리뷰가 많을수록 기준을 올린다(뽑힌 리뷰의 0.5%, 최소 3건).
-  // '아쉬움 많은 요소' = 이 작품의 평균보다 지적 비율이 눈에 띄게 높은 요소 (대부분 호평 일색이라 절대 건수로는 안 보임)
-  var minN = Math.max(3, Math.round((agg.used || 0) * 0.005));
-  var sp = 0, sn = 0;
-  shown.forEach(function (x) { sp += x.pos; sn += x.neg; });
-  var avgNeg = (sp + sn) ? sn / (sp + sn) : 0;
-  var negShare = function (x) { return x.neg / (x.pos + x.neg); };
-  var strongPos = shown.filter(function (x) { return x.pos >= minN && negShare(x) <= Math.max(0.1, avgNeg); })
-    .sort(function (x, y) { return y.pos - x.pos; }).slice(0, 3);
-  // 평균의 1.5배 이상이거나, 호불호가 큰 작품이라도 지적이 40%를 넘으면 표시
-  var strongNeg = shown.filter(function (x) {
-    return x.neg >= minN && (negShare(x) >= 0.4 || negShare(x) >= Math.max(0.15, avgNeg * 1.5));
-  })
-    .sort(function (x, y) { return negShare(y) - negShare(x); }).slice(0, 3);
-  if (strongPos.length || strongNeg.length) {
-    var sum = el("p", "covernote");
-    var parts = [];
-    if (strongPos.length) parts.push("주로 호평: " + strongPos.map(function (x) { return x.label; }).join(" · "));
-    if (strongNeg.length) parts.push("아쉬움 많은 요소: " + strongNeg.map(function (x) {
-      return x.label + "(" + Math.round(negShare(x) * 100) + "%)";
-    }).join(" · "));
-    sum.textContent = parts.join("   /   ");
-    card.appendChild(sum);
+  var seg = null;
+  if (hasD) {
+    seg = el("div", "seg small aspbasis");
+    [["d", "자세한 리뷰 " + num(dN) + "건"], ["all", "전체 리뷰 " + num(agg.total) + "건"]].forEach(function (o) {
+      var b = el("button", "", o[1]);
+      b.dataset.b = o[0];
+      b.addEventListener("click", function () { basis = o[0]; paint(); });
+      seg.appendChild(b);
+    });
+    card.appendChild(seg);
   }
-
-  var wrap = el("div", "asp"), anyEx = false;
+  var body = el("div");
+  card.appendChild(body);
   var phrAll = RABSA.packPhr(agg.phr || {}, 10);   // 저장본(배열)·즉석 계산(맵) 모두 같은 형태로
-  shown.slice(0, 12).forEach(function (x) {
-    var t = x.pos + x.neg;
-    var row = el("div", "asprow");
-    row.appendChild(el("div", "asplabel", x.label));
-    var bar = el("div", "aspbar");
-    var p = el("div", "asppos"); p.style.width = (x.pos / t * 100) + "%";
-    var n = el("div", "aspneg"); n.style.width = (x.neg / t * 100) + "%";
-    bar.appendChild(p); bar.appendChild(n);
-    row.appendChild(bar);
-    row.appendChild(el("div", "aspnum", "👍" + num(x.pos) + " 👎" + num(x.neg)));
-    wrap.appendChild(row);
 
-    // 막대를 누르면 그 요소로 분류된 문장 중
-    //  ① 많이 나온 말: (요소 단어·감성 단어) 짝이 반복된 횟수 + 가장 흔한 형태의 문장 (2번 이상 나온 것만)
-    //  ② 공감 많은 문장: 공감 많은 순 (공감 1개 이상인 것만)
-    var ph = phrAll[x.key] || { p: [], n: [] };
-    // 같은 말로 묶이는 짝은 합친다(건수를 더함)
-    var mergeSide = function (arr) {
-      var by = {}, order = [];
-      (arr || []).forEach(function (e) {
-        var k = RABSA.normKey(e[0]);
-        if (!by[k]) { by[k] = [k, e[1], e[2], e[3], e[4]]; order.push(k); }
-        else by[k][1] += e[1];          // 목록이 건수 순이라 먼저 나온(건수 많은) 짝의 대표 문장을 그대로 둔다
-      });
-      return order.map(function (k) { return by[k]; }).sort(function (a, b) { return b[1] - a[1]; });
-    };
-    ph = { p: mergeSide(ph.p), n: mergeSide(ph.n) };
-    var reps = (ph.p || []).filter(function (e) { return e[1] >= 2; }).slice(0, 3).map(function (e) { return [1, e]; })
-      .concat((ph.n || []).filter(function (e) { return e[1] >= 2; }).slice(0, 2).map(function (e) { return [-1, e]; }));
-    var ex = (agg.examples || {})[x.key] || {};
-    var liked = (ex.p || []).map(function (e) { return [1, e]; }).concat((ex.n || []).map(function (e) { return [-1, e]; }))
-      .filter(function (r) { return r[1][1] >= 1; })
-      .sort(function (r1, r2) { return (r2[1][1] - r1[1][1]) || (r1[1][2] < r2[1][2] ? 1 : -1); })
-      .slice(0, 4);
-    if (reps.length || liked.length) {
+  function paint() {
+    if (seg) Array.prototype.forEach.call(seg.children, function (b) { b.classList.toggle("on", b.dataset.b === basis); });
+    var detailed = basis === "d";
+    var used = detailed ? (agg.dUsed || 0) : agg.used;
+    var shown = aspectList(agg, detailed);
+    var src = a.full ? "구매자 리뷰 " + num(agg.total) + "건" : "최근 리뷰 " + num(agg.total) + "건";
+    h.innerHTML = "요소별 반응 <span class='r'>" + (detailed
+      ? src + " 중 자세한 리뷰 " + num(dN) + "건 기준 · " + num(used) + "건에서 뽑음"
+      : src + " 전체 · " + num(used) + "건에서 뽑음") + "</span>";
+    body.innerHTML = "";
+    if (!shown.length) {
+      body.appendChild(el("p", "hint", "자세한 리뷰에서 요소를 이야기한 문장이 아직 적어요. '전체 리뷰'를 눌러 보세요."));
+      return;
+    }
+
+    // 한 줄 요약. 리뷰가 많을수록 기준을 올린다(뽑힌 리뷰의 0.5%, 최소 3건).
+    // '아쉬움 많은 요소' = 이 작품의 평균보다 지적 비율이 눈에 띄게 높은 요소
+    var minN = Math.max(3, Math.round(used * 0.005));
+    var sp = 0, sn = 0;
+    shown.forEach(function (x) { sp += x.pos; sn += x.neg; });
+    var avgNeg = (sp + sn) ? sn / (sp + sn) : 0;
+    var negShare = function (x) { return x.neg / (x.pos + x.neg); };
+    var strongPos = shown.filter(function (x) { return x.pos >= minN && negShare(x) <= Math.max(0.1, avgNeg); })
+      .sort(function (x, y) { return y.pos - x.pos; }).slice(0, 3);
+    // 평균의 1.5배 이상이거나, 호불호가 큰 작품이라도 지적이 40%를 넘으면 표시
+    var strongNeg = shown.filter(function (x) {
+      return x.neg >= minN && (negShare(x) >= 0.4 || negShare(x) >= Math.max(0.15, avgNeg * 1.5));
+    }).sort(function (x, y) { return negShare(y) - negShare(x); }).slice(0, 3);
+    if (strongPos.length || strongNeg.length) {
+      var sum = el("p", "covernote");
+      var parts = [];
+      if (strongPos.length) parts.push("주로 호평: " + strongPos.map(function (x) { return x.label; }).join(" · "));
+      if (strongNeg.length) parts.push("아쉬움 많은 요소: " + strongNeg.map(function (x) {
+        return x.label + "(" + Math.round(negShare(x) * 100) + "%)";
+      }).join(" · "));
+      sum.textContent = parts.join("   /   ");
+      body.appendChild(sum);
+    }
+
+    var wrap = el("div", "asp"), anyEx = false;
+    var exFrom = hasD ? "자세한 리뷰에서 " : "";
+    shown.slice(0, 12).forEach(function (x) {
+      var t = x.pos + x.neg;
+      var row = el("div", "asprow");
+      row.appendChild(el("div", "asplabel", x.label));
+      var bar = el("div", "aspbar");
+      var p = el("div", "asppos"); p.style.width = (x.pos / t * 100) + "%";
+      var n = el("div", "aspneg"); n.style.width = (x.neg / t * 100) + "%";
+      bar.appendChild(p); bar.appendChild(n);
+      row.appendChild(bar);
+      row.appendChild(el("div", "aspnum", "👍" + num(x.pos) + " 👎" + num(x.neg)));
+      wrap.appendChild(row);
+
+      // 막대를 누르면 ① 많이 나온 말(2번 이상 반복된 요소·감성 짝 + 대표 발췌)
+      //            ② 공감 많은 문장(공감 1개 이상, 공감 순) — 둘 다 자세한 리뷰에서
+      var ph = phrAll[x.key] || { p: [], n: [] };
+      ph = { p: mergePhraseSide(ph.p), n: mergePhraseSide(ph.n) };
+      var reps = ph.p.filter(function (e) { return e[1] >= 2; }).slice(0, 3).map(function (e) { return [1, e]; })
+        .concat(ph.n.filter(function (e) { return e[1] >= 2; }).slice(0, 2).map(function (e) { return [-1, e]; }));
+      var ex = (agg.examples || {})[x.key] || {};
+      var liked = (ex.p || []).map(function (e) { return [1, e]; }).concat((ex.n || []).map(function (e) { return [-1, e]; }))
+        .filter(function (r) { return r[1][1] >= 1; })
+        .sort(function (r1, r2) { return (r2[1][1] - r1[1][1]) || (r1[1][2] < r2[1][2] ? 1 : -1); })
+        .slice(0, 4);
+      if (!reps.length && !liked.length) return;
       anyEx = true;
       row.classList.add("hasex");
       var box = el("div", "aspex hidden");
       if (t < 10) box.appendChild(el("div", "exh", "언급이 " + t + "건뿐이라 참고용으로만 보세요"));
       if (reps.length) {
-        box.appendChild(el("div", "exh", "많이 나온 말"));
+        box.appendChild(el("div", "exh", exFrom + "많이 나온 말"));
         reps.forEach(function (r) {
           var e = r[1], d = el("div", r[0] > 0 ? "exp" : "exn");
           d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : "👎 ") + e[0] + " " + num(e[1]) + "건"));
@@ -2891,7 +2923,7 @@ function aspectCard(data) {
         });
       }
       if (liked.length) {
-        box.appendChild(el("div", "exh", "공감 많은 문장"));
+        box.appendChild(el("div", "exh", exFrom + "공감 많은 문장"));
         liked.forEach(function (r) {
           var e = r[1], d = el("div", r[0] > 0 ? "exp" : "exn");
           d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : "👎 ") + "공감 " + num(e[1])));
@@ -2901,15 +2933,17 @@ function aspectCard(data) {
       }
       row.addEventListener("click", function () { box.classList.toggle("hidden"); });
       wrap.appendChild(box);
-    }
-  });
-  card.appendChild(wrap);
+    });
+    body.appendChild(wrap);
 
-  var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 빨강=아쉬움 언급 횟수.";
-  if (anyEx) note += " 막대를 누르면 그 요소의 '많이 나온 말'(반복 횟수)과 '공감 많은 문장'이 나와요.";
-  if (!a.full) note += " 아직 최근 리뷰만으로 계산했어요 — 구매자 리뷰 전체 분석은 순위 높은 작품부터 차례로 진행 중입니다.";
-  if (agg.used < 10) note += " 뽑힌 리뷰가 적어 참고용으로만 보세요.";
-  card.appendChild(el("p", "hint", note));
+    var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 빨강=아쉬움 언급 횟수.";
+    if (hasD) note += " 자세한 리뷰 = 공백·이모지를 빼고 " + RABSA.DETAIL_MIN + "자 이상 (이벤트 날 몰리는 '재밌어요' 같은 한 줄 리뷰와 구분).";
+    if (anyEx) note += " 막대를 누르면 '많이 나온 말'(반복 횟수)과 '공감 많은 문장'이 나와요.";
+    if (!a.full) note += " 아직 최근 리뷰만으로 계산했어요 — 구매자 리뷰 전체 분석은 순위 높은 작품부터 차례로 진행 중입니다.";
+    if (used < 10) note += " 뽑힌 리뷰가 적어 참고용으로만 보세요.";
+    body.appendChild(el("p", "hint", note));
+  }
+  paint();
   return card;
 }
 
@@ -2971,11 +3005,12 @@ function reviewCard(data) {
     card.appendChild(w);
   }
 
-  // 자주 나오는 말
-  var kws = agg.kw || RABSA.topWords(agg.kwf, 24);
+  // 자주 나오는 말 — 자세한 리뷰가 20건 이상이면 그 기준(이벤트성 '기대됩니다·새해' 같은 말이 빠짐)
+  var useD = (agg.dTotal || 0) >= 20 && (agg.kwD || agg.kwfD);
+  var kws = useD ? (agg.kwD || RABSA.topWords(agg.kwfD, 24)) : (agg.kw || RABSA.topWords(agg.kwf, 24));
   kws = kws.slice(0, 24);
   if (kws.length) {
-    card.appendChild(el("h3", "", "리뷰에 자주 나오는 말"));
+    card.appendChild(el("h3", "", useD ? "자세한 리뷰에 자주 나오는 말" : "리뷰에 자주 나오는 말"));
     var tb = el("div", "tags");
     kws.forEach(function (p) {
       var t = el("span", "tag", p[0] + " " + num(p[1]));

@@ -20,7 +20,8 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.RABSA = api;
 })(this, function () {
-  var VERSION = "4";   // 4: 활용형 합침(예뻐→예쁘…), 대표문장=완결된 짧은 문장, '싫어하는'(취향) 제외
+  var VERSION = "5";   // 5: 자세한 리뷰(40자↑) 기준 집계·예시(이벤트성 한 줄 리뷰와 분리), 앞뒤 맥락 발췌
+  // 4:   // 4: 활용형 합침(예뻐→예쁘…), 대표문장=완결된 짧은 문장, '싫어하는'(취향) 제외
   // 3:   // 3: 많이 나온 말(요소·감성 짝 집계), 가까운 감성단어 연결, '지루할 틈이 없다' 반전
 
   function S(s) { return s.split(/\s+/).filter(Boolean); }
@@ -130,9 +131,11 @@
     if (text.length < 4) return [];
     if (preReadRe.test(text) && !readRe.test(text)) return null;
     var out = [];
-    text.split(splitRe).forEach(function (cl) {
-      if (!cl || cl.replace(/\s/g, "").length < 2) return;
-      if (conjectureRe.test(cl)) return;                       // 추측성 절 제외
+    text.split(splitRe).forEach(function (raw) {
+      if (!raw || raw.replace(/\s/g, "").length < 2) return;
+      if (conjectureRe.test(raw)) return;                      // 추측성 절 제외
+      // 단어 속에 숨은 함정('구구절절'의 절절, '썸네일'의 썸)은 같은 길이로 가려서 판정한다
+      var cl = raw.replace(/구구절절|썸네일/g, function (s) { return new Array(s.length + 1).join(" "); });
       var d = polarityDetail(cl);
       if (!d.pol) return;
       aspects.forEach(function (a) {
@@ -147,7 +150,7 @@
             var dist = h.i >= ki ? h.i - ki : (ki - h.i) + 10;
             if (dist < bd) { bd = dist; best = h; }
           });
-          out.push([a.key, d.pol, cl, normKw(a.kw[k]), best ? best.w : ""]);
+          out.push([a.key, d.pol, raw, normKw(a.kw[k]), best ? best.w : ""]);
           break;
         }
       });
@@ -174,9 +177,33 @@
     return out;
   }
 
+  // 자세한 리뷰: 공백·문장부호·이모지·ㅋㅋ/ㅠㅠ를 빼고 40자 이상 (대략 두 문장 이상).
+  // 리디는 리뷰 이벤트 날 10~20자짜리 한 줄 리뷰('재밌어요')가 하루 수백~수천 건 몰리므로(실측),
+  // 성의 있게 쓴 리뷰를 따로 본다.
+  var DETAIL_MIN = 40;
+  function effLen(t) {
+    return (t || "").replace(/\s+/g, "").replace(/[ㅋㅎㅠㅜ]{2,}/g, "").replace(/[^가-힣A-Za-z0-9]/g, "").length;
+  }
+  function isDetailed(t) { return effLen(t) >= DETAIL_MIN; }
+
+  // 리뷰 원문에서 그 절 앞뒤 맥락까지 잘라 보여줄 발췌 (최대 130자, 단어 중간에서 안 자름)
+  function contextOf(text, cl) {
+    var t = (text || "").replace(/\s+/g, " ").trim(), c = (cl || "").replace(/\s+/g, " ").trim();
+    var i = c ? t.indexOf(c) : -1;
+    if (i < 0) return cleanClause(cl || "");
+    var s = Math.max(0, i - 25), e = Math.min(t.length, i + c.length + 50);
+    if (s > 0) { var sp = t.lastIndexOf(" ", s); s = sp < 0 ? 0 : sp + 1; }
+    if (e < t.length) { var ep = t.indexOf(" ", e); e = ep < 0 ? t.length : ep; }
+    var out = t.slice(s, e);
+    if (out.length > 130) out = out.slice(0, 128);
+    return (s > 0 ? "…" : "") + out + (e < t.length ? "…" : "");
+  }
+
   // phr: 요소별 '많이 나온 말' — {요소: {p: {짝: [건수, 대표문장, 공감, 날짜]}, n: {...}}}
+  // phr·examples·kwfD 는 자세한 리뷰에서만, aspects 는 전체, aspectsD 는 자세한 리뷰만 센다.
   function newAgg() {
-    return { total: 0, used: 0, aspects: {}, examples: {}, phr: {}, kwf: {}, stars: {}, months: {} };
+    return { total: 0, used: 0, aspects: {}, examples: {}, phr: {}, kwf: {}, stars: {}, months: {},
+      dTotal: 0, dUsed: 0, aspectsD: {}, kwfD: {} };
   }
 
   function cleanClause(cl, min) {
@@ -198,7 +225,7 @@
     if (arr.length > 3) arr.length = 3;
   }
 
-  // 많이 나온 말: (요소단어, 감성단어) 짝마다 건수를 세고, 대표 문장은 가장 짧은(=흔한 말 그대로인) 것 → 같으면 공감 많은 것
+  // 많이 나온 말: (요소단어, 감성단어) 짝마다 자세한 리뷰에서 반복된 건수를 세고, 대표 발췌를 하나 둔다
   // 같은 말의 활용형은 하나로 센다 ('예뻐요/예쁜/예쁘고' → 예쁘)
   var SAME = { "예뻐": "예쁘", "예쁜": "예쁘", "이뻐": "예쁘", "이쁜": "예쁘", "이쁘": "예쁘", "귀여": "귀엽", "기엽": "귀엽",
     "사랑스러": "사랑스럽", "아름다": "아름답", "멋진": "멋지", "멋져": "멋지", "멋있": "멋지", "재미있": "재밌", "재미나": "재밌",
@@ -212,13 +239,10 @@
     if (base.indexOf(kw) === 0 || kw.indexOf(base) === 0) return w;   // '재밌·재밌' 같은 겹침은 하나로
     return kw + "·" + w;
   }
-  // 대표 문장 비교: 끝까지 완결된 문장(…요/다/음/함/네/ㅋ/ㅠ 등으로 끝남) > 짧은 것 > 공감 많은 것
-  var DONE_RE = /[요다음함네죠임듯ㅋㅎㅠㅜ!~♡♥]$/;
+  // 대표 문장 비교 (자세한 리뷰의 발췌 중에서): 공감 많은 것 > 맥락이 긴(성의 있는) 것
   function repBetter(c, lk, old, oldLk) {
-    var a = DONE_RE.test(c) ? 0 : 1, b = DONE_RE.test(old) ? 0 : 1;
-    if (a !== b) return a < b;
-    if (c.length !== old.length) return c.length < old.length;
-    return lk > oldLk;
+    if (lk !== oldLk) return lk > oldLk;
+    return c.length > old.length;
   }
   function keepPhrase(agg, key, pol, kw, w, c, likes, date) {
     var slot = agg.phr[key] || (agg.phr[key] = { p: {}, n: {} });
@@ -237,17 +261,30 @@
     if (r && r.rating) agg.stars[r.rating] = (agg.stars[r.rating] || 0) + 1;
     var at = (r && r.at) || "";
     if (at) { var mo = at.slice(0, 7); agg.months[mo] = (agg.months[mo] || 0) + 1; }
-    tokens(text).forEach(function (w) { agg.kwf[w] = (agg.kwf[w] || 0) + 1; });
+    var words = tokens(text);
+    words.forEach(function (w) { agg.kwf[w] = (agg.kwf[w] || 0) + 1; });
+    var detailed = isDetailed(text);
+    if (detailed) {
+      agg.dTotal = (agg.dTotal || 0) + 1;
+      agg.kwfD = agg.kwfD || {};
+      words.forEach(function (w) { agg.kwfD[w] = (agg.kwfD[w] || 0) + 1; });
+    }
     var pairs = analyzeReview(text);
     if (!pairs || !pairs.length) return;
     agg.used++;
+    if (detailed) agg.dUsed = (agg.dUsed || 0) + 1;
     agg.phr = agg.phr || {};
+    agg.aspectsD = agg.aspectsD || {};
     pairs.forEach(function (p) {
       var s = agg.aspects[p[0]] || (agg.aspects[p[0]] = [0, 0]);
       if (p[1] > 0) s[0]++; else s[1]++;
-      keepExample(agg, p[0], p[1], cleanClause(p[2]), r.likes, at.slice(0, 10));
-      // 많이 나온 말의 대표 문장은 '재밌어요'처럼 짧은 완결 문장도 될 수 있게 4글자부터
-      keepPhrase(agg, p[0], p[1], p[3], p[4], cleanClause(p[2], 4), r.likes, at.slice(0, 10));
+      if (!detailed) return;
+      // 자세한 리뷰만: 요소별 집계 + 많이 나온 말 + 공감 많은 문장 (앞뒤 맥락까지 발췌)
+      var sd = agg.aspectsD[p[0]] || (agg.aspectsD[p[0]] = [0, 0]);
+      if (p[1] > 0) sd[0]++; else sd[1]++;
+      var ex = contextOf(text, p[2]);
+      keepExample(agg, p[0], p[1], ex, r.likes, at.slice(0, 10));
+      keepPhrase(agg, p[0], p[1], p[3], p[4], ex, r.likes, at.slice(0, 10));
     });
   }
 
@@ -303,6 +340,7 @@
   return {
     VERSION: VERSION, aspects: aspects, polarity: polarity, polarityDetail: polarityDetail,
     analyzeReview: analyzeReview, tokens: tokens, newAgg: newAgg, addReview: addReview, analyze: analyze,
-    topWords: topWords, packPhr: packPhr, unpackPhr: unpackPhr, normKey: normKey
+    topWords: topWords, packPhr: packPhr, unpackPhr: unpackPhr, normKey: normKey,
+    isDetailed: isDetailed, DETAIL_MIN: DETAIL_MIN
   };
 });
