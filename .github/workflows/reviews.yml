@@ -1,0 +1,79 @@
+name: 리뷰·별점 전체 수집
+
+# scripts/reviews_full.js 를 돌립니다.
+#  1) 전 작품 별점 수 (하루 한 번, 그날 첫 실행에서) → docs/data/rc/
+#     순위 밖으로 나간 작품도 '별점 개수 추이'가 이어지게 합니다.
+#  2) 구매자 리뷰 전량 수집 + 요소별 반응 분석 → docs/data/reviews/
+#     처음엔 작품마다 전량, 그 뒤로는 새 리뷰만. 순위 높은 작품부터. 원문은 최근 12건만 저장.
+# 리디에 부담을 주지 않도록 요청 간격 2.5초, 한 번에 60분까지만 돌고 하루 4번 나눠 돕니다.
+# (처음 전량을 다 채우는 데 며칠 걸리고, 그 뒤로는 가볍게 새 리뷰만 받습니다)
+
+on:
+  schedule:
+    - cron: "30 20 * * *"   # 한국시간 05:30 (그날 첫 실행 → 전 작품 별점도 여기서)
+    - cron: "30 2 * * *"    # 한국시간 11:30
+    - cron: "30 8 * * *"    # 한국시간 17:30
+    - cron: "30 14 * * *"   # 한국시간 23:30
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "리뷰 수집에 쓸 시간(분)"
+        type: string
+        default: "60"
+
+permissions:
+  contents: write
+
+# 이 작업은 docs/data/reviews · docs/data/rc · state 만 고칩니다. 다른 수집(collect 그룹)은
+# 이 파일들을 건드리지 않으므로 따로 줄을 세워, 수집 대기열을 취소하지 않게 합니다.
+concurrency:
+  group: reviews
+  cancel-in-progress: false
+
+jobs:
+  reviews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+
+    steps:
+      # 대기열에서 기다렸다 시작한 실행도 직전 실행이 올린 최신 상태(state)부터 이어가도록
+      # 실행을 건 시점의 커밋이 아니라 브랜치 끝을 받습니다.
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # 파이썬 수집기(collect.py)를 고칠 때 문법이 깨지면 매일 수집이 멈추므로 여기서도 확인합니다.
+      - name: 파이썬 수집기 문법 확인
+        run: python3 -m py_compile scripts/collect.py scripts/ridi/*.py
+
+      # 이 단계만 시간 제한. 넘쳐서 멈춰도 아래 '결과 저장'은 돌아 그때까지 모은 것은 남습니다.
+      - name: 수집·분석 실행
+        timeout-minutes: 95
+        run: node scripts/reviews_full.js --budget-min "${{ inputs.budget || '60' }}" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/reviews docs/data/rc state
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -q -m "리뷰·별점 전체 수집: $DATE"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git fetch origin main
+            git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || exit 1
+          done
+          echo "여러 번 시도했지만 저장하지 못했습니다."
+          exit 1

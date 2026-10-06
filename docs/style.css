@@ -355,6 +355,11 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .asppos { background: var(--new); height: 100%; }
 .aspneg { background: var(--up); height: 100%; }
 .aspnum { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .72rem; }
+.asprow.hasex { cursor: pointer; }
+.asprow.hasex .asplabel { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+.aspex { margin: -2px 0 4px 84px; padding: 6px 8px; border-radius: 6px; background: var(--chip); font-size: .76rem; line-height: 1.45; }
+.aspex .exp, .aspex .exn { padding: 2px 0; }
+.aspex .exn { color: var(--up); }
 
 .reviews { display: flex; flex-direction: column; gap: 9px; }
 .rv { border-top: 1px solid var(--line); padding-top: 8px; font-size: .85rem; }
