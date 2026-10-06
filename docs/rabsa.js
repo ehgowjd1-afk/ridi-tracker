@@ -12,6 +12,7 @@
  *
  * 집계(agg) 형태 — 사이트에 저장되는 analysis 와 같다:
  *   { total, used, aspects: {키: [긍정, 부정]}, examples: {키: {p: [[문장, 공감, 날짜]], n: [...]}},
+ *     phr: {키: {p: {요소단어·감성단어: [건수, 대표문장, 공감, 날짜]}, n: {...}}},
  *     kwf: {단어: 리뷰수}, stars: {"1".."5": 수}, months: {"YYYY-MM": 수} }
  */
 (function (root, factory) {
@@ -19,7 +20,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.RABSA = api;
 })(this, function () {
-  var VERSION = "2";   // 2: 줄거리 서술(삶·인생이 지루/답답) 오탐 제외
+  var VERSION = "3";   // 3: 많이 나온 말(요소·감성 짝 집계), 가까운 감성단어 연결, '지루할 틈이 없다' 반전
 
   function S(s) { return s.split(/\s+/).filter(Boolean); }
 
@@ -39,10 +40,10 @@
     { key: "price",     label: "가격·과금", kw: S("가격 정가 가성비 돈값 비싸 과금 환불 돈아깝 시간아깝 캐시아깝") },
     { key: "author",    label: "작가·전작 신뢰", kw: S("믿고보는 전작 차기작 도장깨기") }
   ];
-  var positive = S("재밌 재미있 재미나 잼나 꿀잼 존잼 핵잼 개잼 개존잼 대존잼 존맛 맛도리 맛집 맛있 마시써 꿀맛 최고 명작 수작 인생작 띵작 갓작 갓벽 레전드 대작 대박 완벽 만족 흡입력 흡인력 몰입 술술 순삭 흥미 흥미진진 흥미로 매력적 매력있 설레 설렘 두근 달달 달콤 애틋 간질간질 몽글몽글 절절 순애 여운 감동 먹먹 울컥 귀엽 기엽 졸귀 귀염뽀짝 뽀짝 사랑스럽 예쁘 이쁘 깜찍 탄탄 촘촘 짜임새 깔끔 신선 참신 독특 신박 취저 취향저격 입덕 강추 강력추천 츄라이 정주행 밤새 힐링 섹시 쫄깃 찰떡 명불허전 극락 감탄 입체적 독보적 완독 믿고보는 유쾌 웃기 웃음 피식 빵터 미쳤 미친 골때리 죽이네 찰지 완급조절 사이다 눈호강 유죄 재탕 재독 괜찮 ㄱㅊ 볼만 무난 그럭저럭 준수 좋");
+  var positive = S("재밌 재미있 재미나 잼나 꿀잼 존잼 핵잼 개잼 개존잼 대존잼 존맛 맛도리 맛집 맛있 마시써 꿀맛 최고 명작 수작 인생작 띵작 갓작 갓벽 레전드 대작 대박 완벽 만족 흡입력 흡인력 몰입 술술 순삭 흥미 흥미진진 흥미로 매력적 매력있 설레 설렘 두근 달달 달콤 애틋 간질간질 몽글몽글 절절 순애 여운 감동 먹먹 울컥 귀엽 귀여 기엽 졸귀 귀염뽀짝 뽀짝 사랑스럽 사랑스러 예쁘 예뻐 예쁜 이쁘 이뻐 이쁜 아름답 아름다 멋있 멋지 멋진 멋져 잘생 훌륭 최애 존예 깜찍 탄탄 촘촘 짜임새 깔끔 신선 참신 독특 신박 취저 취향저격 입덕 강추 강력추천 츄라이 정주행 밤새 힐링 섹시 쫄깃 찰떡 명불허전 극락 감탄 입체적 독보적 완독 믿고보는 유쾌 웃기 웃음 피식 빵터 미쳤 미친 골때리 죽이네 찰지 완급조절 사이다 눈호강 유죄 재탕 재독 괜찮 ㄱㅊ 볼만 무난 그럭저럭 준수 좋");
   var posPhrase = ["나쁘지 않", "나쁘진 않", "싫지 않", "다시 읽", "또 읽", "잘 읽히", "술술 읽", "손을 놓을 수 없", "손을 못 놓",
     "매력 있", "매력이 있", "매력도 있", "매력 넘", "재미 있", "흥미 있", "케미 있"];
-  var negative = S("아쉽 아쉬 지루 루즈 질질 늘어지 고구마 용두사미 뒷심부족 엔딩조루 억지 작위 유치 오글 오그라들 노잼 재미없 잼없 답답 속터지 비추 하차 구매방지 재구매방지 재대여방지 방지용 작붕 캐붕 발번역 번역투 오타 오탈자 비문 산만 어수선 중구난방 난잡 평면적 돌려막기 자기복제 급전개 급발진 급마무리 급작스럽 뜬금 별로 별루 최악 실망 짜증 불호 난해 역하 현타 양산형 김빠 식었 묵은지 무매력 매력없 멍청 바보 찌질 찐따 민폐 호구 뇌절 밍숭맹숭 밍밍 슴슴 싱겁 허무 허술 노답 똥망 대실패 돈아깝 시간아깝 캐시아깝 짜치 뻔하 진부 전형적 질리 기빨리 꾸역꾸역 얼렁뚱땅 휘리릭 후다닥 지지부진 무한반복 흐지부지 올드 촌스럽 부자연스럽 어색 수준미달 짬뽕 짜집기 거슬리 극혐 쓰레기 저질 저급 지저분 더럽 지뢰 심심 흐린눈 속지마 평점에속 별점에낚 어이없 어처구니 떨어지 애매 어정쩡 허접 힘빠지 맥빠 삽질");
+  var negative = S("아쉽 아쉬 지루 루즈 질질 늘어지 고구마 용두사미 뒷심부족 엔딩조루 억지 작위 유치 오글 오그라들 노잼 재미없 잼없 답답 속터지 비추 하차 구매방지 재구매방지 재대여방지 방지용 작붕 캐붕 발번역 번역투 오타 오탈자 비문 산만 어수선 중구난방 난잡 평면적 돌려막기 자기복제 급전개 급발진 급마무리 급작스럽 뜬금 별로 별루 최악 실망 짜증 불호 난해 역하 현타 양산형 김빠 식었 묵은지 무매력 매력없 멍청 바보 찌질 찐따 민폐 호구 뇌절 밍숭맹숭 밍밍 슴슴 싱겁 허무 허술 노답 똥망 대실패 돈아깝 시간아깝 캐시아깝 짜치 뻔하 진부 전형적 질리 기빨리 꾸역꾸역 얼렁뚱땅 휘리릭 후다닥 지지부진 무한반복 흐지부지 올드 촌스럽 부자연스럽 어색 수준미달 짬뽕 짜집기 거슬리 극혐 쓰레기 저질 저급 지저분 더럽 지뢰 심심 흐린눈 속지마 평점에속 별점에낚 어이없 어처구니 싫어 싫다 싫었 불편 떨어지 애매 어정쩡 허접 힘빠지 맥빠 삽질");
   var negPhrase = ["안 읽히", "안읽히", "안 넘어가", "손이 안 가", "손을 놓았", "읽기 싫",
     "매력 없", "매력이 없", "재미 없", "흥미 없"];
 
@@ -74,44 +75,55 @@
   // 줄거리 서술('지루한 삶을 살던 주인공', '인생이 답답했던')은 작품 평가가 아니므로 감성에서 뺀다
   var narrativeRe = /(삶|인생|일상|생활|하루하루|나날|세상|현실)[이가은는도을를의]?\s?(지루|답답)|(지루|답답)(한|했던|하던|하게)\s?(삶|인생|일상|생활|하루|나날|세상|현실)/g;
 
-  function polarity(cl) {
+  // 한 절의 감성: 감성 단어마다 {w: 단어, s: +1/-1, i: 위치}를 모으고, 많은 쪽이 절의 극성.
+  // (모든 가림 처리는 글자 수를 그대로 두므로 i 는 원래 절의 위치와 같다)
+  function polarityDetail(cl) {
     var m = cl.replace(/좋아하|좋아해|좋아할|좋아함/g, "▦▦▦");   // '좋아하는'(취향)은 평가 아님
     m = m.replace(narrativeRe, function (s) { return new Array(s.length + 1).join("▦"); });
-    var pos = 0, neg = 0, i, after, before;
+    var hits = [], i;
 
-    // 1) 부정어 (뒤에 '없이/않/덜' 등이 붙으면 칭찬으로 반전: '고구마 없이', '지루하지 않')
+    // 1) 부정어 — 뒤에 '없이/않/덜'이 붙거나 '지루할 틈이 (전혀) 없다'처럼 조금 떨어져 부정되면 칭찬으로 반전
     negative.forEach(function (ww) {
       i = m.indexOf(ww);
       while (i >= 0) {
-        after = m.substr(i + ww.length, 4);
-        before = m.substr(Math.max(0, i - 2), 2);
-        if (/없이|없고|없는|없음|없어|없네|없었|않|덜/.test(after) || /덜/.test(before)) pos++; else neg++;
+        var after = m.substr(i + ww.length, 4), before = m.substr(Math.max(0, i - 2), 2);
+        var rest = m.substr(i + ww.length, 16);
+        var flip = /없이|없고|없는|없음|없어|없네|없었|않|덜/.test(after) || /덜/.test(before) ||
+          /^[^\s]{0,3}\s?(틈|구석|부분|장면)[이은도가]?\s*(전혀|하나도|1도|별로|딱히)?\s*(없|않)/.test(rest);
+        hits.push({ w: flip ? ww + " 없음" : ww, s: flip ? 1 : -1, i: i });
         m = mask(m, i, ww.length, "▦");
         i = m.indexOf(ww);
       }
     });
-    negPhrase.forEach(function (ph) { while (m.indexOf(ph) >= 0) { neg++; m = m.replace(ph, "▦"); } });
+    negPhrase.forEach(function (ph) {
+      while ((i = m.indexOf(ph)) >= 0) { hits.push({ w: ph, s: -1, i: i }); m = mask(m, i, ph.length, "▦"); }
+    });
 
-    // 2) 긍정어 (뒤에 '않/없' 또는 앞에 홀로 선 '안/못' → 부정으로 반전: '좋지 않', '안 좋')
+    // 2) 긍정어 — 뒤에 '않/없' 또는 앞에 홀로 선 '안/못'이면 부정으로 반전('좋지 않', '안 좋')
     positive.forEach(function (ww) {
       i = m.indexOf(ww);
       while (i >= 0) {
-        after = m.substr(i + ww.length, 4);
-        before = m.substring(0, i);
-        var negated = /^(지|진|지도|긴)?\s*(않|안|없)/.test(after) || /(^|\s)(안|못)\s*$/.test(before.slice(-4));
-        if (negated) neg++; else pos++;
+        var after2 = m.substr(i + ww.length, 4), before2 = m.substring(0, i);
+        var negated = /^(지|진|지도|긴)?\s*(않|안|없)/.test(after2) || /(^|\s)(안|못)\s*$/.test(before2.slice(-4));
+        hits.push({ w: negated ? ww + " 아님" : ww, s: negated ? -1 : 1, i: i });
         m = mask(m, i, ww.length, "♦");
         i = m.indexOf(ww);
       }
     });
-    posPhrase.forEach(function (ph) { while (m.indexOf(ph) >= 0) { pos++; m = m.replace(ph, "♦"); } });
+    posPhrase.forEach(function (ph) {
+      while ((i = m.indexOf(ph)) >= 0) { hits.push({ w: ph, s: 1, i: i }); m = mask(m, i, ph.length, "♦"); }
+    });
 
-    if (pos > neg) return 1;
-    if (neg > pos) return -1;
-    return 0;
+    var pos = 0, neg = 0;
+    hits.forEach(function (h) { if (h.s > 0) pos++; else neg++; });
+    return { pol: pos > neg ? 1 : neg > pos ? -1 : 0, hits: hits };
   }
+  function polarity(cl) { return polarityDetail(cl).pol; }
 
-  // 리뷰 한 건 → [[요소키, 극성, 절], ...]. 선구매·기대평이면 null.
+  // 요소 단어 표기 통일 ('그림이/그림을' → 그림, '작화가' → 작화)
+  function normKw(w) { return w === "작화가" ? "작화" : w.replace(/^그림(이|을|은|도)$/, "그림"); }
+
+  // 리뷰 한 건 → [[요소키, 극성, 절, 요소단어, 가장 가까운 감성단어], ...]. 선구매·기대평이면 null.
   function analyzeReview(text) {
     text = (text || "").trim();
     if (text.length < 4) return [];
@@ -120,11 +132,22 @@
     text.split(splitRe).forEach(function (cl) {
       if (!cl || cl.replace(/\s/g, "").length < 2) return;
       if (conjectureRe.test(cl)) return;                       // 추측성 절 제외
-      var pol = polarity(cl);
-      if (!pol) return;
+      var d = polarityDetail(cl);
+      if (!d.pol) return;
       aspects.forEach(function (a) {
         for (var k = 0; k < a.kw.length; k++) {
-          if (cl.indexOf(a.kw[k]) >= 0) { out.push([a.key, pol, cl]); break; }
+          var ki = cl.indexOf(a.kw[k]);
+          if (ki < 0) continue;
+          // 이 요소 단어와 가장 가까운, 절의 극성과 같은 방향의 감성 단어.
+          // 한국어는 평가가 대상 뒤에 오므로('스토리도 재밌고') 뒤쪽 단어를 우선한다(앞쪽은 +10 벌점).
+          var best = null, bd = 1e9;
+          d.hits.forEach(function (h) {
+            if (h.s !== d.pol) return;
+            var dist = h.i >= ki ? h.i - ki : (ki - h.i) + 10;
+            if (dist < bd) { bd = dist; best = h; }
+          });
+          out.push([a.key, d.pol, cl, normKw(a.kw[k]), best ? best.w : ""]);
+          break;
         }
       });
     });
@@ -150,22 +173,45 @@
     return out;
   }
 
+  // phr: 요소별 '많이 나온 말' — {요소: {p: {짝: [건수, 대표문장, 공감, 날짜]}, n: {...}}}
   function newAgg() {
-    return { total: 0, used: 0, aspects: {}, examples: {}, kwf: {}, stars: {}, months: {} };
+    return { total: 0, used: 0, aspects: {}, examples: {}, phr: {}, kwf: {}, stars: {}, months: {} };
   }
 
-  // 예시 문장 후보: 공감 많은 것 > 최신 것. 요소·극성별 2개까지.
-  function better(a, b) { return (a[1] - b[1]) || (a[2] > b[2] ? 1 : a[2] < b[2] ? -1 : 0); }
-  function keepExample(agg, key, pol, cl, likes, date) {
+  function cleanClause(cl) {
     var c = cl.replace(/\s+/g, " ").trim();
-    if (c.length < 6) return;
+    if (c.length < 6) return "";
     if (c.length > 90) c = c.slice(0, 88) + "…";
+    return c;
+  }
+
+  // 공감 많은 문장: 공감 많은 것 > 최신 것. 요소·극성별 3개까지.
+  function better(a, b) { return (a[1] - b[1]) || (a[2] > b[2] ? 1 : a[2] < b[2] ? -1 : 0); }
+  function keepExample(agg, key, pol, c, likes, date) {
+    if (!c) return;
     var slot = agg.examples[key] || (agg.examples[key] = { p: [], n: [] });
     var arr = pol > 0 ? slot.p : slot.n;
     for (var i = 0; i < arr.length; i++) if (arr[i][0] === c) return;
     arr.push([c, likes || 0, date || ""]);
     arr.sort(function (x, y) { return better(y, x); });
-    if (arr.length > 2) arr.length = 2;
+    if (arr.length > 3) arr.length = 3;
+  }
+
+  // 많이 나온 말: (요소단어, 감성단어) 짝마다 건수를 세고, 대표 문장은 가장 짧은(=흔한 말 그대로인) 것 → 같으면 공감 많은 것
+  function phraseKey(kw, w) {
+    if (!w) return kw;
+    var base = w.replace(/ (없음|아님)$/, "");
+    if (base.indexOf(kw) === 0 || kw.indexOf(base) === 0) return w;   // '재밌·재밌' 같은 겹침은 하나로
+    return kw + "·" + w;
+  }
+  function keepPhrase(agg, key, pol, kw, w, c, likes, date) {
+    var slot = agg.phr[key] || (agg.phr[key] = { p: {}, n: {} });
+    var bucket = pol > 0 ? slot.p : slot.n;
+    var k = phraseKey(kw, w);
+    var e = bucket[k] || (bucket[k] = [0, "", -1, ""]);
+    e[0]++;
+    var lk = likes || 0;
+    if (c && (!e[1] || c.length < e[1].length || (c.length === e[1].length && lk > e[2]))) { e[1] = c; e[2] = lk; e[3] = date || ""; }
   }
 
   // 리뷰 한 건을 집계에 더한다 (Actions의 이어받기 계산도 같은 함수를 쓴다)
@@ -179,10 +225,13 @@
     var pairs = analyzeReview(text);
     if (!pairs || !pairs.length) return;
     agg.used++;
+    agg.phr = agg.phr || {};
     pairs.forEach(function (p) {
       var s = agg.aspects[p[0]] || (agg.aspects[p[0]] = [0, 0]);
       if (p[1] > 0) s[0]++; else s[1]++;
-      keepExample(agg, p[0], p[1], p[2], r.likes, at.slice(0, 10));
+      var c = cleanClause(p[2]);
+      keepExample(agg, p[0], p[1], c, r.likes, at.slice(0, 10));
+      keepPhrase(agg, p[0], p[1], p[3], p[4], c, r.likes, at.slice(0, 10));
     });
   }
 
@@ -190,6 +239,35 @@
     var agg = newAgg();
     (reviews || []).forEach(function (r) { addReview(agg, r); });
     return agg;
+  }
+
+  // 많이 나온 말을 저장용 배열로: {요소: {p: [[짝, 건수, 대표문장, 공감, 날짜], ...상위 n], n: [...]}}
+  function packPhr(phr, n) {
+    var out = {};
+    Object.keys(phr || {}).forEach(function (key) {
+      var slot = phr[key], o = {};
+      ["p", "n"].forEach(function (side) {
+        var b = slot[side] || {};
+        if (Array.isArray(b)) { o[side] = b.slice(0, n || 10); return; }   // 이미 배열(저장본)
+        o[side] = Object.keys(b).map(function (k) { return [k, b[k][0], b[k][1], b[k][2] < 0 ? 0 : b[k][2], b[k][3]]; })
+          .sort(function (x, y) { return (y[1] - x[1]) || (y[3] - x[3]); })
+          .slice(0, n || 10);
+      });
+      out[key] = o;
+    });
+    return out;
+  }
+  // 저장본 → 이어서 셀 수 있는 형태
+  function unpackPhr(packed) {
+    var out = {};
+    Object.keys(packed || {}).forEach(function (key) {
+      var o = { p: {}, n: {} };
+      ["p", "n"].forEach(function (side) {
+        (packed[key][side] || []).forEach(function (e) { o[side][e[0]] = [e[1], e[2], e[3], e[4]]; });
+      });
+      out[key] = o;
+    });
+    return out;
   }
 
   // 자주 나오는 말 상위 n개 ([[단어, 리뷰수], ...]) — 2번 이상 나온 것만
@@ -201,7 +279,8 @@
   }
 
   return {
-    VERSION: VERSION, aspects: aspects, polarity: polarity, analyzeReview: analyzeReview,
-    tokens: tokens, newAgg: newAgg, addReview: addReview, analyze: analyze, topWords: topWords
+    VERSION: VERSION, aspects: aspects, polarity: polarity, polarityDetail: polarityDetail,
+    analyzeReview: analyzeReview, tokens: tokens, newAgg: newAgg, addReview: addReview, analyze: analyze,
+    topWords: topWords, packPhr: packPhr, unpackPhr: unpackPhr
   };
 });

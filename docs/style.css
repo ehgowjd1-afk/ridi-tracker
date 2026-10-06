@@ -380,3 +380,6 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
   background: var(--text); color: var(--bg); padding: 9px 16px;
   border-radius: 999px; font-size: .85rem; z-index: 90;
 }
+.aspex .exh { font-size: .7rem; font-weight: 600; color: var(--dim); margin: 4px 0 1px; }
+.aspex .exh:first-child { margin-top: 0; }
+.aspex b { font-weight: 600; }

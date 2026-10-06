@@ -262,7 +262,8 @@ async function fetchNew(cell, bookId, lastId, lastAt) {
 function packAnalysis(agg) {
   return {
     total: agg.total, used: agg.used, aspects: agg.aspects, examples: agg.examples,
-    kw: RABSA.topWords(agg.kwf, KW_KEEP), stars: agg.stars, months: agg.months
+    kw: RABSA.topWords(agg.kwf, KW_KEEP), stars: agg.stars, months: agg.months,
+    phr: RABSA.packPhr(agg.phr, 10)         // 요소별 많이 나온 말 상위 10개(이어받기용, 화면엔 3개)
   };
 }
 function unpackAnalysis(a) {
@@ -271,6 +272,7 @@ function unpackAnalysis(a) {
   agg.aspects = a.aspects || {}; agg.examples = a.examples || {};
   agg.stars = a.stars || {}; agg.months = a.months || {};
   (a.kw || []).forEach((p) => { agg.kwf[p[0]] = p[1]; });
+  agg.phr = RABSA.unpackPhr(a.phr || {});
   return agg;
 }
 
@@ -431,7 +433,8 @@ async function main() {
     }
     const byPriority = (a, b) => (a.rank - b.rank) || (b.rc - a.rc);
     todo.hot.sort((a, b) => (a.main - b.main) || byPriority(a, b));
-    todo.full.sort((a, b) => (a.stale - b.stale) || byPriority(a, b));
+    // 순위권 작품은 (처음이든 엔진 버전이 바뀐 재계산이든) 순위 순서대로 먼저, 그다음 순위 밖(처음 → 재계산, 별점 많은 순)
+    todo.full.sort((a, b) => (a.rank - b.rank) || (a.stale - b.stale) || (b.rc - a.rc));
     todo.refresh.sort((a, b) => (b.age - a.age) || byPriority(a, b));   // 오래 안 본 것부터
     console.log(`  오늘 할 일: 상위권 새 리뷰 ${todo.hot.length}, 전량 ${todo.full.length}, 새 리뷰 확인 ${todo.refresh.length}`
       + (backoff ? ` / 실패가 잦아 쉬는 작품 ${backoff}` : ""));
