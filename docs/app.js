@@ -2851,6 +2851,8 @@ function opinionText(key) {
 // 작품 전체에서 '공통 의견'(가장 많이 반복된 말)을 모은다: [[부호, 문장, 건수, 대표 발췌], ...]
 function commonOpinions(agg) {
   var phrAll = RABSA.packPhr(agg.phr || {}, 10), pos = [], neg = [];
+  // '반복된 말'로 칠 최소 건수: 요소를 뽑은 리뷰의 2% 이상, 최소 2건 (한두 건짜리 오분류가 대표처럼 보이지 않게)
+  var minN = Math.max(2, Math.round(((agg.aspectsD ? agg.dUsed : agg.used) || 0) * 0.02));
   Object.keys(phrAll).forEach(function (key) {
     mergePhraseSide(phrAll[key].p).forEach(function (e) { pos.push([1, e[0], e[1], e[2]]); });
     mergePhraseSide(phrAll[key].n).forEach(function (e) { neg.push([-1, e[0], e[1], e[2]]); });
@@ -2864,7 +2866,7 @@ function commonOpinions(agg) {
       if (o[2] > by[t][4]) { by[t][3] = o[3]; by[t][4] = o[2]; }
     });
     return Object.keys(by).map(function (k) { return by[k]; })
-      .filter(function (o) { return o[2] >= 2; })
+      .filter(function (o) { return o[2] >= minN; })
       .sort(function (a, b) { return b[2] - a[2]; }).slice(0, n);
   };
   return { pos: top(pos, 6), neg: top(neg, 4) };
@@ -2893,10 +2895,8 @@ function opinionCard(data) {
     list.appendChild(row);
   };
   ops.pos.forEach(add);
-  if (ops.neg.length) {
-    list.appendChild(el("div", "exh", "아쉬운 점으로 반복된 말"));
-    ops.neg.forEach(add);
-  }
+  list.appendChild(el("div", "exh", ops.neg.length ? "아쉬운 점으로 반복된 말" : "아쉬운 점: 뚜렷하게 반복된 말 없음"));
+  ops.neg.forEach(add);
   card.appendChild(list);
   card.appendChild(el("p", "hint", hasD
     ? "자세한 리뷰(공백·이모지 빼고 " + RABSA.DETAIL_MIN + "자 이상)에서 같은 말을 한 횟수입니다. 이벤트 날 몰리는 한 줄 리뷰는 뺐어요."
