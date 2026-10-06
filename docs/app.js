@@ -2815,16 +2815,27 @@ function aspectCard(data) {
     : "최근 리뷰 " + num(agg.total) + "건 중 " + num(agg.used) + "건에서 뽑음") + "</span>";
   card.appendChild(h);
 
-  // 한 줄 요약: 호평/아쉬움 요소
-  var strongPos = shown.filter(function (x) { return x.pos >= 3 && x.pos >= x.neg * 2; })
+  // 한 줄 요약. 리뷰가 많을수록 기준을 올린다(뽑힌 리뷰의 0.5%, 최소 3건).
+  // '아쉬움 많은 요소' = 이 작품의 평균보다 지적 비율이 눈에 띄게 높은 요소 (대부분 호평 일색이라 절대 건수로는 안 보임)
+  var minN = Math.max(3, Math.round((agg.used || 0) * 0.005));
+  var sp = 0, sn = 0;
+  shown.forEach(function (x) { sp += x.pos; sn += x.neg; });
+  var avgNeg = (sp + sn) ? sn / (sp + sn) : 0;
+  var negShare = function (x) { return x.neg / (x.pos + x.neg); };
+  var strongPos = shown.filter(function (x) { return x.pos >= minN && negShare(x) <= Math.max(0.1, avgNeg); })
     .sort(function (x, y) { return y.pos - x.pos; }).slice(0, 3);
-  var strongNeg = shown.filter(function (x) { return x.neg >= 2 && x.neg >= x.pos * 0.5; })
-    .sort(function (x, y) { return (y.neg / (y.pos + y.neg)) - (x.neg / (x.pos + x.neg)); }).slice(0, 3);
+  // 평균의 1.5배 이상이거나, 호불호가 큰 작품이라도 지적이 40%를 넘으면 표시
+  var strongNeg = shown.filter(function (x) {
+    return x.neg >= minN && (negShare(x) >= 0.4 || negShare(x) >= Math.max(0.15, avgNeg * 1.5));
+  })
+    .sort(function (x, y) { return negShare(y) - negShare(x); }).slice(0, 3);
   if (strongPos.length || strongNeg.length) {
     var sum = el("p", "covernote");
     var parts = [];
     if (strongPos.length) parts.push("주로 호평: " + strongPos.map(function (x) { return x.label; }).join(" · "));
-    if (strongNeg.length) parts.push("자주 지적: " + strongNeg.map(function (x) { return x.label; }).join(" · "));
+    if (strongNeg.length) parts.push("아쉬움 많은 요소: " + strongNeg.map(function (x) {
+      return x.label + "(" + Math.round(negShare(x) * 100) + "%)";
+    }).join(" · "));
     sum.textContent = parts.join("   /   ");
     card.appendChild(sum);
   }
