@@ -263,7 +263,9 @@ function packAnalysis(agg) {
   return {
     total: agg.total, used: agg.used, aspects: agg.aspects, examples: agg.examples,
     kw: RABSA.topWords(agg.kwf, KW_KEEP), stars: agg.stars, months: agg.months,
-    phr: RABSA.packPhr(agg.phr, 10)         // 요소별 많이 나온 말 상위 10개(이어받기용, 화면엔 3개)
+    phr: RABSA.packPhr(agg.phr, 10),        // 요소별 많이 나온 말 상위 10개(이어받기용, 화면엔 3개)
+    // 자세한 리뷰(40자↑)만 따로: 리뷰 수, 요소별 집계, 자주 나오는 말
+    dTotal: agg.dTotal, dUsed: agg.dUsed, aspectsD: agg.aspectsD, kwD: RABSA.topWords(agg.kwfD, 100)
   };
 }
 function unpackAnalysis(a) {
@@ -273,6 +275,8 @@ function unpackAnalysis(a) {
   agg.stars = a.stars || {}; agg.months = a.months || {};
   (a.kw || []).forEach((p) => { agg.kwf[p[0]] = p[1]; });
   agg.phr = RABSA.unpackPhr(a.phr || {});
+  agg.dTotal = a.dTotal || 0; agg.dUsed = a.dUsed || 0; agg.aspectsD = a.aspectsD || {};
+  (a.kwD || []).forEach((p) => { agg.kwfD[p[0]] = p[1]; });
   return agg;
 }
 

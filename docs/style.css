@@ -383,3 +383,11 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .aspex .exh { font-size: .7rem; font-weight: 600; color: var(--dim); margin: 4px 0 1px; }
 .aspex .exh:first-child { margin-top: 0; }
 .aspex b { font-weight: 600; }
+.aspbasis { margin: 2px 0 8px; }
+/* 독자들의 공통 의견 */
+.opn { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.oprow .optop { display: flex; justify-content: space-between; gap: 8px; font-size: .86rem; }
+.oprow .opc { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .76rem; }
+.oprow.exn b { color: var(--up); }
+.oprow .ope { color: var(--dim); font-size: .74rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opn .exh { font-size: .72rem; font-weight: 600; color: var(--dim); margin-top: 4px; }
