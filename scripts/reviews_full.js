@@ -27,6 +27,7 @@
 const fs = require("fs");
 const path = require("path");
 const RABSA = require("../docs/rabsa.js");
+const RO = require("./review_opts.js");   // 작품 정보(웹툰·BL·원작·작가·인물 이름) → 분석 엔진 옵션
 
 const ROOT = path.join(__dirname, "..");
 const DATA = path.join(ROOT, "docs", "data");
@@ -265,7 +266,9 @@ function packAnalysis(agg) {
     kw: RABSA.topWords(agg.kwf, KW_KEEP), stars: agg.stars, months: agg.months,
     phr: RABSA.packPhr(agg.phr, 10),        // 요소별 많이 나온 말 상위 10개(이어받기용, 화면엔 3개)
     // 자세한 리뷰(40자↑)만 따로: 리뷰 수, 요소별 집계, 자주 나오는 말
-    dTotal: agg.dTotal, dUsed: agg.dUsed, aspectsD: agg.aspectsD, kwD: RABSA.topWords(agg.kwfD, 100)
+    dTotal: agg.dTotal, dUsed: agg.dUsed, aspectsD: agg.aspectsD, kwD: RABSA.topWords(agg.kwfD, 100),
+    // 캐릭터 과몰입 반응([전체, 자세한 리뷰] 건수 + 자세한 리뷰 예시 2개) — 부정 평가로 세지 않음
+    over: agg.over, overEx: agg.overEx
   };
 }
 function unpackAnalysis(a) {
@@ -277,6 +280,7 @@ function unpackAnalysis(a) {
   agg.phr = RABSA.unpackPhr(a.phr || {});
   agg.dTotal = a.dTotal || 0; agg.dUsed = a.dUsed || 0; agg.aspectsD = a.aspectsD || {};
   (a.kwD || []).forEach((p) => { agg.kwfD[p[0]] = p[1]; });
+  agg.over = a.over || [0, 0]; agg.overEx = a.overEx || [];
   return agg;
 }
 
@@ -293,7 +297,10 @@ function isFull(file, id) {
 
 // 작품 하나 처리. rcNow: 지금 별점 수, rcAt: 지난번 확인 때 별점 수.
 // 리뷰는 별점과 함께 달리므로 별점 수가 그대로면 새 리뷰도 없다 → 요청 없이 건너뛴다.
-async function processBook(id, cell, title, old, rcNow, rcAt) {
+// opts: 작품 정보(review_opts.js). 인물 이름은 전량 받을 때 리뷰에 실제로 자주 나오는 것만 확정해 파일에 남기고,
+// 새 리뷰만 더할 때는 그 이름을 다시 쓴다(같은 기준으로 이어서 세도록).
+async function processBook(id, cell, title, old, rcNow, rcAt, opts) {
+  opts = opts || {};
   let agg, recent, lastId, lastAt, added, mode;
   if (isFull(old, id)) {
     mode = "new";
@@ -302,7 +309,8 @@ async function processBook(id, cell, title, old, rcNow, rcAt) {
     added = fresh.length;
     if (!added) return { mode, added: 0, changed: false };
     agg = unpackAnalysis(old.analysis);
-    fresh.slice().reverse().forEach((r) => RABSA.addReview(agg, r));     // 오래된 것부터 더함
+    opts.names = (old && old.names) || [];
+    fresh.slice().reverse().forEach((r) => RABSA.addReview(agg, r, opts));     // 오래된 것부터 더함
     recent = fresh.concat(old.reviews || []).slice(0, KEEP_RECENT);
     lastId = fresh.reduce((m, r) => Math.max(m, r.id || 0), old.last_id || 0);
     lastAt = fresh.reduce((m, r) => (r.at > m ? r.at : m), old.last_at || "");
@@ -310,7 +318,8 @@ async function processBook(id, cell, title, old, rcNow, rcAt) {
     mode = "full";
     const all = await fetchAll(cell, id);
     added = all.length;
-    agg = RABSA.analyze(all);
+    opts.names = RO.confirmNames(opts.names || [], all.map((r) => r.content || ""));
+    agg = RABSA.analyze(all, opts);
     recent = all.slice(0, KEEP_RECENT);
     lastId = all.reduce((m, r) => Math.max(m, r.id || 0), 0);
     lastAt = all.reduce((m, r) => (r.at > m ? r.at : m), "");
@@ -328,6 +337,7 @@ async function processBook(id, cell, title, old, rcNow, rcAt) {
     updated_at: nowKst(), count: agg.total, history: history,
     full_at: mode === "full" ? TODAY : (old && old.full_at),
     last_id: lastId, last_at: lastAt,
+    names: opts.names || [],
     analysis: packAnalysis(agg), reviews: recent
   });
   return { mode, added, changed: true };
@@ -445,6 +455,12 @@ async function main() {
     report.queue = { hot: todo.hot.length, full: todo.full.length, refresh: todo.refresh.length, backoff: backoff };
 
     const queue = todo.hot.concat(todo.full, todo.refresh);
+    // 분석 엔진에 넘길 작품 정보: 인물 이름 후보를 고르려고 전체 소개글의 낱말 빈도를 한 번 센다
+    const nameDf = queue.length ? RO.buildNameDf(path.join(DATA, "books")) : {};
+    const webtoonIds = new Set();
+    for (const key of Object.keys(latest.rankings || {})) {
+      if (/^(1600|4250)-/.test(key)) (latest.rankings[key].ids || []).forEach((i) => webtoonIds.add(i));
+    }
     let done = 0, failRun = 0;
     for (const job of queue) {
       if (overBudget()) { console.log("  시간 예산을 다 써서 여기까지"); break; }
@@ -452,7 +468,9 @@ async function main() {
       done++;
       touched.add(job.id);
       try {
-        const r = await processBook(job.id, job.cell, job.title, job.old, rcNow[job.id], state.rcAt[job.id]);
+        const det = readJSON(path.join(DATA, "books", job.id + ".json"), null);
+        const opts = RO.reviewOpts(det, catalog[job.id], nameDf, catalog, { webtoonIds });
+        const r = await processBook(job.id, job.cell, job.title, job.old, rcNow[job.id], state.rcAt[job.id], opts);
         state.checked[job.id] = TODAY;
         if (rcNow[job.id] != null) state.rcAt[job.id] = rcNow[job.id];
         delete state.failed[job.id];

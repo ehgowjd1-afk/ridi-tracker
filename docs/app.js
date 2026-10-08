@@ -2791,7 +2791,7 @@ function promoCard(promos, shifts) {
 function reviewAgg(data) {
   if (!data) return null;
   if (data.analysis) return { agg: data.analysis, full: true };
-  if (data.reviews && data.reviews.length) return { agg: RABSA.analyze(data.reviews), full: false };
+  if (data.reviews && data.reviews.length) return { agg: RABSA.analyze(data.reviews, { names: data.names || [] }), full: false };
   return null;
 }
 
@@ -2827,14 +2827,30 @@ var OPINION_PRED = {
   "절절": "절절하다", "순애": "순애다", "몽글몽글": "몽글몽글하다", "믿고보는": "믿고 본다", "훌륭": "훌륭하다",
   "삽질": "삽질한다", "비문": "비문이 많다", "오탈자": "오탈자가 많다", "역하": "역하다", "쓰레기": "쓰레기 같다",
   "불호": "불호다", "바보": "바보 같다", "찐따": "찐따 같다", "안읽히": "안 읽힌다", "간질간질": "간질간질하다",
-  "애절": "애절하다", "깜찍": "깜찍하다", "입덕": "입덕하게 된다", "극락": "극락이다", "골때리": "골 때린다"
+  "애절": "애절하다", "깜찍": "깜찍하다", "입덕": "입덕하게 된다", "극락": "극락이다", "골때리": "골 때린다",
+  // 엔진 v8에서 늘어난 말
+  "흐뭇": "흐뭇하다", "풋풋": "풋풋하다", "쏠쏠": "쏠쏠하다", "스며들": "스며든다", "스며듭": "스며든다", "스며든": "스며든다",
+  "따뜻": "따뜻하다", "행복": "행복하다", "원픽": "원픽이다", "끝내주": "끝내준다", "이입": "이입된다", "걸작": "걸작이다",
+  "웰메이드": "웰메이드다", "기특": "기특하다", "묘미": "묘미가 있다", "강약조절": "강약 조절이 좋다", "완급조절": "완급 조절이 좋다",
+  "보배": "보배 같다", "시원하": "시원하다", "벤츠": "벤츠다", "고움": "곱다", "고와": "곱다", "고운": "곱다", "소름": "소름 돋는다",
+  "적절": "적절하다", "선물": "선물 같다", "단비": "단비 같다", "꼴리": "꼴린다", "꼴려": "꼴린다", "개꼴": "꼴린다", "존꼴": "꼴린다",
+  "섹시": "섹시하다", "맛도리": "맛도리다", "레전드": "레전드다", "갓작": "갓작이다", "대작": "대작이다", "수작": "수작이다",
+  "밋밋": "밋밋하다", "미숙": "미숙하다", "불친절": "불친절하다", "무의미": "무의미하다", "반감": "반감된다", "갑갑": "갑갑하다",
+  "엉망": "엉망이다", "쓸데없": "쓸데없다", "부족": "부족하다", "섭섭": "섭섭하다", "서운": "서운하다", "지치": "지친다",
+  "지쳐": "지친다", "역겹": "역겹다", "구린": "구리다", "구려": "구리다", "구림": "구리다", "망했": "망했다", "망함": "망했다",
+  "노꼴": "안 꼴린다", "코웃음": "코웃음만 나온다", "헛웃음": "헛웃음이 나온다", "짜증": "짜증 난다", "피곤": "피곤하다",
+  "노잼": "재미없다", "꾸역꾸역": "꾸역꾸역 읽게 된다", "흐린눈": "흐린 눈 하게 된다", "작붕": "작화가 무너진다", "속터지": "속 터진다",
+  "조건부 추천": "조건부로 추천한다", "미친": "미쳤다(좋은 뜻)", "쩐다": "쩐다"
 };
 // 부정어가 '없이/않'으로 뒤집힌 칭찬: '지루 없음' → '지루하지 않다'
 var OPINION_NOT = {
   "지루": "지루하지 않다", "답답": "답답하지 않다", "고구마": "고구마가 없다", "뻔하": "뻔하지 않다",
   "불편": "불편하지 않다", "질질": "질질 끌지 않다", "늘어지": "늘어지지 않다", "유치": "유치하지 않다",
   "억지": "억지스럽지 않다", "오글": "오글거리지 않다", "산만": "산만하지 않다", "어색": "어색하지 않다",
-  "아쉽": "아쉬움이 없다", "루즈": "루즈하지 않다", "진부": "진부하지 않다", "뜬금": "뜬금없지 않다"
+  "아쉽": "아쉬움이 없다", "루즈": "루즈하지 않다", "진부": "진부하지 않다", "뜬금": "뜬금없지 않다",
+  "부족": "부족함이 없다", "쓸데없": "쓸데없는 부분이 없다", "짜치": "짜치지 않다", "거슬리": "거슬리지 않다",
+  "캐붕": "캐붕이 없다", "작붕": "작붕이 없다", "실망": "실망시키지 않는다", "올드": "올드하지 않다", "밋밋": "밋밋하지 않다",
+  "질리": "질리지 않다", "허술": "허술하지 않다", "별로": "별로가 아니다", "속터지": "속 터지지 않다"
 };
 function hasBatchim(word) {
   var c = word.charCodeAt(word.length - 1);
@@ -2847,6 +2863,7 @@ function opinionText(key) {
   if (m && m[2] === "없음") pred = OPINION_NOT[m[1]] || (m[1] + " 없음");
   else if (m) pred = OPINION_PRED[m[1]] ? OPINION_PRED[m[1]].replace(/다$/, "지 않다") : m[1] + " 아님";
   else if (OPINION_PRED[w]) pred = OPINION_PRED[w];
+  else if (/다$/.test(w)) pred = w;                       // 엔진이 문장으로 만든 말 ('잘 쓴다', '다음이 궁금하다')
   else if (w.indexOf(" ") >= 0) pred = w + "다";          // '매력 있' → '매력 있다', '잘 읽히' → '잘 읽히다'
   else pred = w;
   return kw ? kw + (hasBatchim(kw) ? "이 " : "가 ") + pred : pred;
@@ -2854,12 +2871,13 @@ function opinionText(key) {
 
 // 작품 전체에서 '공통 의견'(가장 많이 반복된 말)을 모은다: [[부호, 문장, 건수, 대표 발췌], ...]
 function commonOpinions(agg) {
-  var phrAll = RABSA.packPhr(agg.phr || {}, 10), pos = [], neg = [];
+  var phrAll = RABSA.packPhr(agg.phr || {}, 10), pos = [], neg = [], mid = [];
   // '반복된 말'로 칠 최소 건수: 요소를 뽑은 리뷰의 2% 이상, 최소 2건 (한두 건짜리 오분류가 대표처럼 보이지 않게)
   var minN = Math.max(2, Math.round(((agg.aspectsD ? agg.dUsed : agg.used) || 0) * 0.02));
   Object.keys(phrAll).forEach(function (key) {
     mergePhraseSide(phrAll[key].p).forEach(function (e) { pos.push([1, e[0], e[1], e[2]]); });
     mergePhraseSide(phrAll[key].n).forEach(function (e) { neg.push([-1, e[0], e[1], e[2]]); });
+    mergePhraseSide(phrAll[key].m).forEach(function (e) { mid.push([0, e[0], e[1], e[2]]); });   // 무난(그냥 그렇다)
   });
   var top = function (arr, n) {
     var by = {};
@@ -2873,14 +2891,14 @@ function commonOpinions(agg) {
       .filter(function (o) { return o[2] >= minN; })
       .sort(function (a, b) { return b[2] - a[2]; }).slice(0, n);
   };
-  return { pos: top(pos, 6), neg: top(neg, 4) };
+  return { pos: top(pos, 6), mid: top(mid, 3), neg: top(neg, 4) };
 }
 
 function opinionCard(data) {
   var a = reviewAgg(data);
   if (!a) return null;
   var agg = a.agg, ops = commonOpinions(agg);
-  if (!ops.pos.length && !ops.neg.length) return null;
+  if (!ops.pos.length && !ops.neg.length && !ops.mid.length) return null;
   var card = el("div", "card");
   var h = el("h3");
   var hasD = !!agg.aspectsD;
@@ -2890,21 +2908,38 @@ function opinionCard(data) {
   card.appendChild(h);
   var list = el("div", "opn");
   var add = function (o) {
-    var row = el("div", "oprow " + (o[0] > 0 ? "exp" : "exn"));
+    var row = el("div", "oprow " + (o[0] > 0 ? "exp" : o[0] < 0 ? "exn" : "exm"));
     var top = el("div", "optop");
-    top.appendChild(el("b", "", (o[0] > 0 ? "👍 " : "👎 ") + o[1]));
+    top.appendChild(el("b", "", (o[0] > 0 ? "👍 " : o[0] < 0 ? "👎 " : "😐 ") + o[1]));
     top.appendChild(el("span", "opc", num(o[2]) + "건"));
     row.appendChild(top);
     if (o[3]) row.appendChild(el("div", "ope", "“" + o[3] + "”"));
     list.appendChild(row);
   };
   ops.pos.forEach(add);
+  if (ops.mid.length) {
+    list.appendChild(el("div", "exh", "무난하다는 평 (칭찬이지만 '그냥 그렇다'에 가까운 말)"));
+    ops.mid.forEach(add);
+  }
   list.appendChild(el("div", "exh", ops.neg.length ? "아쉬운 점으로 반복된 말" : "아쉬운 점: 뚜렷하게 반복된 말 없음"));
   ops.neg.forEach(add);
+  // 캐릭터에게 화내는 과몰입 반응 — 작품 불만이 아니라 몰입했다는 신호라 따로 보여준다
+  var ov = agg.over ? (hasD ? agg.over[1] : agg.over[0]) : 0;
+  if (ov > 0) {
+    list.appendChild(el("div", "exh", "캐릭터 과몰입 반응 (불만으로 세지 않음)"));
+    var orow = el("div", "oprow");
+    var otop = el("div", "optop");
+    otop.appendChild(el("b", "", "🔥 캐릭터에게 화내거나 욕한 반응"));
+    otop.appendChild(el("span", "opc", num(ov) + "건"));
+    orow.appendChild(otop);
+    (agg.overEx || []).slice(0, 2).forEach(function (e) { orow.appendChild(el("div", "ope", "“" + e[0] + "”")); });
+    list.appendChild(orow);
+  }
   card.appendChild(list);
-  card.appendChild(el("p", "hint", hasD
+  card.appendChild(el("p", "hint", (hasD
     ? "자세한 리뷰(공백·이모지 빼고 " + RABSA.DETAIL_MIN + "자 이상)에서 같은 말을 한 횟수입니다. 이벤트 날 몰리는 한 줄 리뷰는 뺐어요."
-    : "리뷰에서 같은 말을 한 횟수입니다."));
+    : "리뷰에서 같은 말을 한 횟수입니다.")
+    + " 다른 작품 얘기('다른 소설들은…', '전작은…')는 이 작품 평가에서 뺐어요."));
   return card;
 }
 
@@ -2912,9 +2947,9 @@ function aspectList(agg, detailed) {
   var src = detailed ? (agg.aspectsD || {}) : (agg.aspects || {});
   return RABSA.aspects.map(function (a) {
     var s = src[a.key] || [0, 0];
-    return { key: a.key, label: a.label, pos: s[0], neg: s[1] };
-  }).filter(function (x) { return x.pos + x.neg >= 2; })
-    .sort(function (a, b) { return (b.pos + b.neg) - (a.pos + a.neg); });
+    return { key: a.key, label: a.label, pos: s[0], neg: s[1], mid: s[2] || 0, strong: s[3] || 0, strongNeg: s[4] || 0 };
+  }).filter(function (x) { return x.pos + x.neg + x.mid >= 2; })
+    .sort(function (a, b) { return (b.pos + b.neg + b.mid) - (a.pos + a.neg + a.mid); });
 }
 
 // 같은 말로 묶이는 '많이 나온 말' 짝은 합친다(건수를 더함, 대표 문장은 건수 많은 쪽 것)
@@ -2978,9 +3013,9 @@ function aspectCard(data) {
     // '아쉬움 많은 요소' = 이 작품의 평균보다 지적 비율이 눈에 띄게 높은 요소
     var minN = Math.max(3, Math.round(used * 0.005));
     var sp = 0, sn = 0;
-    shown.forEach(function (x) { sp += x.pos; sn += x.neg; });
+    shown.forEach(function (x) { sp += x.pos + x.mid; sn += x.neg; });
     var avgNeg = (sp + sn) ? sn / (sp + sn) : 0;
-    var negShare = function (x) { return x.neg / (x.pos + x.neg); };
+    var negShare = function (x) { return x.neg / (x.pos + x.neg + x.mid); };
     var strongPos = shown.filter(function (x) { return x.pos >= minN && negShare(x) <= Math.max(0.1, avgNeg); })
       .sort(function (x, y) { return y.pos - x.pos; }).slice(0, 3);
     // 평균의 1.5배 이상이거나, 호불호가 큰 작품이라도 지적이 40%를 넘으면 표시
@@ -3001,25 +3036,28 @@ function aspectCard(data) {
     var wrap = el("div", "asp"), anyEx = false;
     var exFrom = hasD ? "자세한 리뷰에서 " : "";
     shown.slice(0, 12).forEach(function (x) {
-      var t = x.pos + x.neg;
+      var t = x.pos + x.neg + x.mid;
       var row = el("div", "asprow");
       row.appendChild(el("div", "asplabel", x.label));
       var bar = el("div", "aspbar");
       var p = el("div", "asppos"); p.style.width = (x.pos / t * 100) + "%";
+      var md = el("div", "aspmid"); md.style.width = (x.mid / t * 100) + "%";
       var n = el("div", "aspneg"); n.style.width = (x.neg / t * 100) + "%";
-      bar.appendChild(p); bar.appendChild(n);
+      bar.appendChild(p); bar.appendChild(md); bar.appendChild(n);
       row.appendChild(bar);
-      row.appendChild(el("div", "aspnum", "👍" + num(x.pos) + " 👎" + num(x.neg)));
+      row.appendChild(el("div", "aspnum", "👍" + num(x.pos) + (x.mid ? " 😐" + num(x.mid) : "") + " 👎" + num(x.neg)));
       wrap.appendChild(row);
 
       // 막대를 누르면 ① 많이 나온 말(2번 이상 반복된 요소·감성 짝 + 대표 발췌)
       //            ② 공감 많은 문장(공감 1개 이상, 공감 순) — 둘 다 자세한 리뷰에서
       var ph = phrAll[x.key] || { p: [], n: [] };
-      ph = { p: mergePhraseSide(ph.p), n: mergePhraseSide(ph.n) };
+      ph = { p: mergePhraseSide(ph.p), m: mergePhraseSide(ph.m), n: mergePhraseSide(ph.n) };
       var reps = ph.p.filter(function (e) { return e[1] >= 2; }).slice(0, 3).map(function (e) { return [1, e]; })
+        .concat(ph.m.filter(function (e) { return e[1] >= 2; }).slice(0, 2).map(function (e) { return [0, e]; }))
         .concat(ph.n.filter(function (e) { return e[1] >= 2; }).slice(0, 2).map(function (e) { return [-1, e]; }));
       var ex = (agg.examples || {})[x.key] || {};
-      var liked = (ex.p || []).map(function (e) { return [1, e]; }).concat((ex.n || []).map(function (e) { return [-1, e]; }))
+      var liked = (ex.p || []).map(function (e) { return [1, e]; }).concat((ex.m || []).map(function (e) { return [0, e]; }))
+        .concat((ex.n || []).map(function (e) { return [-1, e]; }))
         .filter(function (r) { return r[1][1] >= 1; })
         .sort(function (r1, r2) { return (r2[1][1] - r1[1][1]) || (r1[1][2] < r2[1][2] ? 1 : -1); })
         .slice(0, 4);
@@ -3028,11 +3066,17 @@ function aspectCard(data) {
       row.classList.add("hasex");
       var box = el("div", "aspex hidden");
       if (t < 10) box.appendChild(el("div", "exh", "언급이 " + t + "건뿐이라 참고용으로만 보세요"));
+      // 뉘앙스 내역: 강한 호평 / 무난 / 강한 불만
+      var nu = [];
+      if (x.strong) nu.push("🔥 강한 호평 " + num(x.strong));
+      if (x.mid) nu.push("😐 무난 " + num(x.mid));
+      if (x.strongNeg) nu.push("💢 강한 불만 " + num(x.strongNeg));
+      if (nu.length) box.appendChild(el("div", "exh", "뉘앙스: " + nu.join(" · ")));
       if (reps.length) {
         box.appendChild(el("div", "exh", exFrom + "많이 나온 말"));
         reps.forEach(function (r) {
-          var e = r[1], d = el("div", r[0] > 0 ? "exp" : "exn");
-          d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : "👎 ") + opinionText(e[0]) + " " + num(e[1]) + "건"));
+          var e = r[1], d = el("div", r[0] > 0 ? "exp" : r[0] < 0 ? "exn" : "exm");
+          d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : r[0] < 0 ? "👎 " : "😐 ") + opinionText(e[0]) + " " + num(e[1]) + "건"));
           if (e[2]) d.appendChild(document.createTextNode(" — “" + e[2] + "”"));
           box.appendChild(d);
         });
@@ -3040,8 +3084,8 @@ function aspectCard(data) {
       if (liked.length) {
         box.appendChild(el("div", "exh", exFrom + "공감 많은 문장"));
         liked.forEach(function (r) {
-          var e = r[1], d = el("div", r[0] > 0 ? "exp" : "exn");
-          d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : "👎 ") + "공감 " + num(e[1])));
+          var e = r[1], d = el("div", r[0] > 0 ? "exp" : r[0] < 0 ? "exn" : "exm");
+          d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : r[0] < 0 ? "👎 " : "😐 ") + "공감 " + num(e[1])));
           d.appendChild(document.createTextNode(" “" + e[0] + "”"));
           box.appendChild(d);
         });
@@ -3051,7 +3095,7 @@ function aspectCard(data) {
     });
     body.appendChild(wrap);
 
-    var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 빨강=아쉬움 언급 횟수.";
+    var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 회색=무난('나쁘지 않다·그다지 없다'처럼 그냥 그렇다는 말), 빨강=아쉬움 언급 횟수.";
     if (hasD) note += " 자세한 리뷰 = 공백·이모지를 빼고 " + RABSA.DETAIL_MIN + "자 이상 (이벤트 날 몰리는 '재밌어요' 같은 한 줄 리뷰와 구분).";
     if (anyEx) note += " 막대를 누르면 '많이 나온 말'(반복 횟수)과 '공감 많은 문장'이 나와요.";
     if (!a.full) note += " 아직 최근 리뷰만으로 계산했어요 — 구매자 리뷰 전체 분석은 순위 높은 작품부터 차례로 진행 중입니다.";

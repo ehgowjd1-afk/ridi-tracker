@@ -391,3 +391,6 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .oprow.exn b { color: var(--up); }
 .oprow .ope { color: var(--dim); font-size: .74rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opn .exh { font-size: .72rem; font-weight: 600; color: var(--dim); margin-top: 4px; }
+/* 무난(그냥 그렇다) — 호평·아쉬움 사이 회색 */
+.aspmid { background: var(--faint); height: 100%; }
+.aspex .exm, .oprow.exm b { color: var(--dim); }
