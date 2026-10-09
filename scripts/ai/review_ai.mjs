@@ -28,11 +28,12 @@ export const SCHEMA = {
           items: {
             type: "array",
             items: {
-              type: "object", additionalProperties: false, required: ["e", "lv", "q"],
+              type: "object", additionalProperties: false, required: ["e", "lv", "q", "k"],
               properties: {
                 e: { type: "string", enum: Object.keys(ELEMENTS) },
                 lv: { type: "string", enum: LEVELS },
-                q: { type: "string" }
+                q: { type: "string" },
+                k: { type: "string" }
               }
             }
           },
@@ -90,6 +91,7 @@ export const SYSTEM = `당신은 한국 웹소설·웹툰 플랫폼 리디(RIDI)
 - 한 리뷰에서 같은 요소는 한 번만, 가장 대표적인 판정으로. 서로 다른 요소는 여러 개 가능.
 - 하나의 말이 두 요소에 걸치면(예: '복선들이 재미있다' → story, immersion) 둘 다 넣어도 된다.
 - q에는 판정의 근거가 된 원문 구절을 고치지 말고 그대로 짧게(40자 이내) 적는다.
+- k에는 그 평가를 '대상이 어떻다' 꼴의 아주 짧은 문장으로 적는다(12자 이내, '~다'로 끝냄). 같은 뜻이면 늘 같은 말로: '작화가 예쁘다', '전개가 느리다', '남주가 매력적이다', '재밌다', '여운이 남는다', '결말이 아쉽다'.
 - 확실하지 않으면 넣지 않는다. 지어내지 않는다.`;
 
 function workBlock(work) {
@@ -100,24 +102,48 @@ function workBlock(work) {
 
 export function makeClient() { return new Anthropic(); }
 
-// 같은 작품의 리뷰 묶음 하나를 분석한다. reviews: [{n, text}]
+// 운영에 쓰는 설정: 사람 검토에서 정확도 94% (2026-10-09, 표본 120건 블라인드 채점)
+export const PROD = { model: "claude-haiku-5-5", effort: "medium" };
+export const PROMPT_VER = "1";   // 프롬프트·스키마를 고치면 올린다 (올리면 전부 다시 분석 = 비용 듦)
+
+// 같은 작품의 리뷰 묶음 하나에 대한 요청 내용. reviews: [{n, text}]
 // cfg: {model, effort, thinking: "disabled" | undefined}
-export async function analyzeBatch(client, cfg, work, reviews) {
+export function buildParams(cfg, work, reviews) {
   const body = workBlock(work) + "\n\n[리뷰]\n" + reviews.map((r) => `#${r.n}\n${r.text.trim()}`).join("\n\n") +
     "\n\n위 리뷰를 규칙대로 분석해 JSON으로 답하세요.";
   const req = {
     model: cfg.model,
-    max_tokens: 16000,
+    // 생각(thinking)도 이 한도에 들어간다. 15건 묶음 평균 ≈ 7,800 토큰이라 넉넉히 — 실제로 쓴 만큼만 요금이 나감
+    max_tokens: 32000,
     system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: body }],
     output_config: { format: { type: "json_schema", schema: SCHEMA } }
   };
   if (cfg.effort) req.output_config.effort = cfg.effort;
   if (cfg.thinking === "disabled") req.thinking = { type: "disabled" };
-  const msg = await client.messages.stream(req).finalMessage();
+  return req;
+}
+
+// 응답 메시지 → [{n, items, over}]
+export function parseMessage(msg) {
   if (msg.stop_reason === "refusal") throw new Error("refusal");
-  const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  const text = (msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed;
   try { parsed = JSON.parse(text); } catch (e) { throw new Error("JSON 해석 실패 (stop_reason=" + msg.stop_reason + ")"); }
-  return { reviews: parsed.reviews || [], usage: msg.usage, stop: msg.stop_reason };
+  return parsed.reviews || [];
+}
+
+// 바로 응답받는 방식 (시험용)
+export async function analyzeBatch(client, cfg, work, reviews) {
+  const msg = await client.messages.stream(buildParams(cfg, work, reviews)).finalMessage();
+  return { reviews: parseMessage(msg), usage: msg.usage, stop: msg.stop_reason };
+}
+
+// 토큰 사용량 → 달러 (프롬프트 10만 토큰 이하 기준 가격). batch=true면 반값.
+const PRICE = { "claude-haiku-5-5": { in: 0.10, out: 0.50 }, "claude-sonnet-5-5": { in: 2, out: 10 } };
+export function costOf(model, u, batch) {
+  const p = PRICE[model] || PRICE["claude-sonnet-5-5"];
+  const usd = ((u.input_tokens || 0) * p.in + (u.output_tokens || 0) * p.out +
+    (u.cache_read_input_tokens || 0) * p.in * 0.1 + (u.cache_creation_input_tokens || 0) * p.in * 1.25) / 1e6;
+  return batch ? usd / 2 : usd;
 }

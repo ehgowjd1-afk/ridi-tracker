@@ -1991,9 +1991,11 @@ function openBook(id, ctxKey) {
     // 순위 밖 작품까지 매일 모은 별점 수 (작품 ID 끝 두 자리로 나눈 작은 파일) — 없으면 null
     Promise.all(months.map(function (m) {
       return softJSON("data/rc/" + m + "/" + rcShard(id) + ".json");
-    }))
+    })),
+    // AI(Claude)가 자세한 리뷰를 읽고 분석한 결과 — 순위 상위 작품만 있음 (없으면 null)
+    softJSON("data/reviews_ai/" + id + ".json")
   ]).then(function (r) {
-    drawBook(id, r[0], r[1], r[2].filter(Boolean), ctxKey, r[5].filter(Boolean));
+    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean));
   });
 }
 
@@ -2788,6 +2790,23 @@ function promoCard(promos, shifts) {
 // 분석 엔진은 rabsa.js (사이트와 Actions가 함께 쓴다).
 // 리뷰 파일에 analysis(Actions가 구매자 리뷰 '전량'으로 계산)가 있으면 그것을 쓰고,
 // 아직 전량 분석 전인 작품은 파일에 든 최근 리뷰로 즉석 계산한다.
+// AI 분석이 있으면 '자세한 리뷰' 기준 화면(요소별 반응·공통 의견·과몰입)을 AI 결과로 바꾼다.
+// '전체 리뷰' 기준은 규칙 엔진 그대로 (한 줄 리뷰까지 AI로 보면 비용이 너무 커서).
+// AI 정확도: 사람 블라인드 채점 94% (규칙 엔진 73%), 2026-10-09 표본 120건.
+function mergeAi(reviewData, ai) {
+  if (!reviewData || !reviewData.analysis || !ai || !ai.analysis || !(ai.analysis.dTotal > 0)) return reviewData;
+  var a = Object.assign({}, reviewData.analysis), x = ai.analysis;
+  // 규칙 엔진이 센 자세한 리뷰가 AI가 읽은 것보다 눈에 띄게 많으면(순위 밖으로 나가 AI 분석이 멈춘 작품 등)
+  // 낡은 AI 결과 대신 최신 규칙 엔진 결과를 보여준다
+  var rd = a.dTotal || 0;
+  if (rd > x.dTotal * 1.2 && rd - x.dTotal >= 10) return reviewData;
+  a.aspectsD = x.aspectsD || {}; a.examples = x.examples || {}; a.phr = x.phr || {};
+  a.dTotal = x.dTotal; a.dUsed = x.dUsed || 0;
+  a.over = [(a.over || [0, 0])[0], (x.over || [0, 0])[1]]; a.overEx = x.overEx || [];
+  a.ai = { model: ai.model, count: x.dTotal, updated: (ai.updated_at || "").slice(0, 10) };
+  return Object.assign({}, reviewData, { analysis: a });
+}
+
 function reviewAgg(data) {
   if (!data) return null;
   if (data.analysis) return { agg: data.analysis, full: true };
@@ -2902,8 +2921,9 @@ function opinionCard(data) {
   var card = el("div", "card");
   var h = el("h3");
   var hasD = !!agg.aspectsD;
-  h.innerHTML = "독자들의 공통 의견 <span class='r'>" + (hasD
-    ? "자세한 리뷰 " + num(agg.dTotal || 0) + "건에서 반복된 말"
+  h.innerHTML = "독자들의 공통 의견 <span class='r'>" + (agg.ai
+    ? "AI가 자세한 리뷰 " + num(agg.dTotal || 0) + "건을 읽고 모은 말"
+    : hasD ? "자세한 리뷰 " + num(agg.dTotal || 0) + "건에서 반복된 말"
     : "리뷰 " + num(agg.total) + "건에서 반복된 말") + "</span>";
   card.appendChild(h);
   var list = el("div", "opn");
@@ -2939,7 +2959,8 @@ function opinionCard(data) {
   card.appendChild(el("p", "hint", (hasD
     ? "자세한 리뷰(공백·이모지 빼고 " + RABSA.DETAIL_MIN + "자 이상)에서 같은 말을 한 횟수입니다. 이벤트 날 몰리는 한 줄 리뷰는 뺐어요."
     : "리뷰에서 같은 말을 한 횟수입니다.")
-    + " 다른 작품 얘기('다른 소설들은…', '전작은…')는 이 작품 평가에서 뺐어요."));
+    + " 다른 작품 얘기('다른 소설들은…', '전작은…')는 이 작품 평가에서 뺐어요."
+    + (agg.ai ? " 이 작품은 AI(Claude)가 자세한 리뷰를 한 건씩 읽고 분류했어요 (" + agg.ai.updated + " 기준)." : "")));
   return card;
 }
 
@@ -2953,14 +2974,15 @@ function aspectList(agg, detailed) {
 }
 
 // 같은 말로 묶이는 '많이 나온 말' 짝은 합친다(건수를 더함, 대표 문장은 건수 많은 쪽 것)
+// (이름이 달라도 화면에 같은 문장으로 보이는 것 — '작화·예쁘'와 '작화가 예쁘다' — 도 합친다)
 function mergePhraseSide(arr) {
   var by = {}, order = [];
   (arr || []).forEach(function (e) {
-    var k = RABSA.normKey(e[0]);
-    if (!by[k]) { by[k] = [k, e[1], e[2], e[3], e[4]]; order.push(k); }
-    else by[k][1] += e[1];
+    var nk = RABSA.normKey(e[0]), t = opinionText(nk);
+    if (!by[t]) { by[t] = [nk, e[1], e[2], e[3], e[4]]; order.push(t); }
+    else { by[t][1] += e[1]; if (!by[t][2] && e[2]) { by[t][2] = e[2]; by[t][3] = e[3]; by[t][4] = e[4]; } }
   });
-  return order.map(function (k) { return by[k]; }).sort(function (a, b) { return b[1] - a[1]; });
+  return order.map(function (t) { return by[t]; }).sort(function (a, b) { return b[1] - a[1]; });
 }
 
 // '요소별 반응' 카드 — 어떤 요소(작화·스토리·캐릭터…)가 호평/아쉬움인지.
@@ -3000,7 +3022,9 @@ function aspectCard(data) {
     var used = detailed ? (agg.dUsed || 0) : agg.used;
     var shown = aspectList(agg, detailed);
     var src = a.full ? "구매자 리뷰 " + num(agg.total) + "건" : "최근 리뷰 " + num(agg.total) + "건";
-    h.innerHTML = "요소별 반응 <span class='r'>" + (detailed
+    h.innerHTML = "요소별 반응 <span class='r'>" + (detailed && agg.ai
+      ? "AI가 자세한 리뷰 " + num(dN) + "건을 읽고 분석 · " + num(used) + "건에서 뽑음"
+      : detailed
       ? src + " 중 자세한 리뷰 " + num(dN) + "건 기준 · " + num(used) + "건에서 뽑음"
       : src + " 전체 · " + num(used) + "건에서 뽑음") + "</span>";
     body.innerHTML = "";
@@ -3095,7 +3119,9 @@ function aspectCard(data) {
     });
     body.appendChild(wrap);
 
-    var note = "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 회색=무난('나쁘지 않다·그다지 없다'처럼 그냥 그렇다는 말), 빨강=아쉬움 언급 횟수.";
+    var note = detailed && agg.ai
+      ? "자세한 리뷰를 AI(Claude)가 한 건씩 읽고 요소별 호평·아쉬움을 판정했어요 (사람이 채점한 정확도 94%, " + agg.ai.updated + " 기준). '전체 리뷰'는 자동 규칙으로 센 값이에요. 초록=호평, 회색=무난, 빨강=아쉬움."
+      : "별점이 아니라 리뷰 '내용'을 문장 단위로 분석한 대략적 경향입니다. 초록=호평, 회색=무난('나쁘지 않다·그다지 없다'처럼 그냥 그렇다는 말), 빨강=아쉬움 언급 횟수.";
     if (hasD) note += " 자세한 리뷰 = 공백·이모지를 빼고 " + RABSA.DETAIL_MIN + "자 이상 (이벤트 날 몰리는 '재밌어요' 같은 한 줄 리뷰와 구분).";
     if (anyEx) note += " 막대를 누르면 '많이 나온 말'(반복 횟수)과 '공감 많은 문장'이 나와요.";
     if (!a.full) note += " 아직 최근 리뷰만으로 계산했어요 — 구매자 리뷰 전체 분석은 순위 높은 작품부터 차례로 진행 중입니다.";

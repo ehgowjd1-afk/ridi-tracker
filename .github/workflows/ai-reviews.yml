@@ -1,0 +1,85 @@
+name: AI 리뷰 분석 (상위 작품)
+
+# scripts/ai/ai_reviews.mjs 를 돌립니다.
+# 웹소설(전체·로맨스·로판·판타지·BL)·웹툰(웹툰·BL웹툰)의 일간·주간·월간 1~30위 작품의 '자세한 리뷰'를
+# Claude(Haiku 5.5)가 읽고 요소별로 판정해 docs/data/reviews_ai/ 에 결과만 저장합니다 (원문 저장 안 함).
+# 비용: Batches API(반값). 이 달 사용액이 한도(기본 $30)를 넘을 것 같으면 보내지 않습니다.
+# API 키는 저장소 시크릿 ANTHROPIC_API_KEY 를 씁니다.
+
+on:
+  schedule:
+    - cron: "10 22 * * *"   # 한국시간 07:10
+    - cron: "10 10 * * *"   # 한국시간 19:10
+  workflow_dispatch:
+    inputs:
+      limit_usd:
+        description: "이 달 AI 사용 한도(달러)"
+        type: string
+        default: "30"
+      max_reviews:
+        description: "한 번에 보낼 자세한 리뷰 수 상한"
+        type: string
+        default: "20000"
+      scope:
+        description: "genre = 장르별 30위 / sub = 세부 장르까지"
+        type: string
+        default: "genre"
+
+permissions:
+  contents: write
+
+# 이 작업은 docs/data/reviews_ai 와 state/ai_state.json 만 고칩니다.
+concurrency:
+  group: ai-reviews
+  cancel-in-progress: false
+
+jobs:
+  ai-reviews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk@0.128.0
+
+      # 입력값은 환경 변수로 넘긴다 (명령줄에 바로 붙이지 않음). 숫자가 아니면 스크립트가 멈춘다.
+      - name: AI 분석 실행
+        timeout-minutes: 95
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LIMIT_USD: ${{ inputs.limit_usd || '30' }}
+          MAX_REVIEWS: ${{ inputs.max_reviews || '20000' }}
+          SCOPE: ${{ inputs.scope || 'genre' }}
+        run: >
+          node scripts/ai/ai_reviews.mjs --budget-min 90
+          --limit-usd "$LIMIT_USD" --max-reviews "$MAX_REVIEWS" --scope "$SCOPE"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/reviews_ai state/ai_state.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -q -m "AI 리뷰 분석: $DATE"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1

@@ -993,6 +993,53 @@
     });
   }
 
+  // AI(Claude)가 읽은 자세한 리뷰 한 건을 '자세한 리뷰' 집계에 더한다 (scripts/ai/ai_reviews.mjs).
+  //   ai = {items: [{e: 요소키, lv: 뉘앙스, q: 근거 구절, k: 짧은 요약}], over: [과몰입 구절]}
+  //   화면이 그대로 쓰도록 규칙 엔진과 같은 칸(aspectsD·examples·phr·over)에 넣는다.
+  //   '많이 나온 말'의 짝 이름은 근거 구절을 규칙 엔진으로 읽어 같은 요소의 (요소단어·감성말)이 나오면 그걸,
+  //   아니면 AI의 짧은 요약(k)을 쓴다 — 같은 말을 같은 이름으로 세기 위해.
+  var AI_SIDE = { strong: "p", pos: "p", mild: "m", mildneg: "n", neg: "n", strongneg: "n" };
+  function addAiReview(agg, r, ai, opts) {
+    var text = normText((r && r.content) || ""), at = ((r && r.at) || "").slice(0, 10), likes = (r && r.likes) || 0;
+    agg.dTotal = (agg.dTotal || 0) + 1;
+    agg.aspectsD = agg.aspectsD || {}; agg.examples = agg.examples || {}; agg.phr = agg.phr || {};
+    var over = (ai && ai.over) || [];
+    if (over.length) {
+      agg.over = agg.over || [0, 0];
+      agg.over[0]++; agg.over[1]++;
+      agg.overEx = agg.overEx || [];
+      var oc = contextOf(text, over[0]);
+      if (oc && !agg.overEx.some(function (e) { return e[0] === oc; })) {
+        agg.overEx.push([oc, likes, at]);
+        agg.overEx.sort(function (x, y) { return better(y, x); });
+        if (agg.overEx.length > 2) agg.overEx.length = 2;
+      }
+    }
+    var seen = {}, used = false;
+    ((ai && ai.items) || []).forEach(function (it) {
+      if (!it || !ASPECT[it.e] || !AI_SIDE[it.lv]) return;
+      var side = AI_SIDE[it.lv], key = it.e + side;
+      if (seen[key]) return;                          // 한 리뷰에서 같은 요소·같은 방향은 한 번만
+      seen[key] = 1; used = true;
+      bumpAspect(agg.aspectsD, it.e, side, it.lv);
+      var q = (it.q || "").trim(), ex = contextOf(text, q || it.k || "");
+      keepExample(agg, it.e, side, ex, likes, at);
+      var kw = "", w = "";
+      var pol = side === "n" ? -1 : 1;
+      var pick = function (src) {
+        (src ? (analyzeReview(src, opts) || []) : []).some(function (p) {
+          if (p[0] === it.e && p[1] === pol && p[4]) { kw = p[3]; w = p[4]; return true; }
+          return false;
+        });
+      };
+      pick(q);
+      if (!w) pick(it.k);    // 근거 구절로 못 읽으면 AI 요약('작화가 예쁘다')을 규칙 엔진 이름('작화·예쁘')으로
+      if (!w) { kw = ""; w = (it.k || "").replace(/\s+/g, " ").trim().slice(0, 20); }
+      if (w) keepPhrase(agg, it.e, side, kw, w, ex, likes, at);
+    });
+    if (used) agg.dUsed = (agg.dUsed || 0) + 1;
+  }
+
   function analyze(reviews, opts) {
     var agg = newAgg();
     (reviews || []).forEach(function (r) { addReview(agg, r, opts); });
@@ -1046,6 +1093,6 @@
     VERSION: VERSION, aspects: aspects, polarity: polarity, polarityDetail: polarityDetail,
     analyzeReview: analyzeReview, tokens: tokens, newAgg: newAgg, addReview: addReview, analyze: analyze,
     topWords: topWords, packPhr: packPhr, unpackPhr: unpackPhr, normKey: normKey,
-    isDetailed: isDetailed, DETAIL_MIN: DETAIL_MIN, isLexicon: isLexicon, normText: normText
+    isDetailed: isDetailed, DETAIL_MIN: DETAIL_MIN, isLexicon: isLexicon, normText: normText, addAiReview: addAiReview
   };
 });
