@@ -19,8 +19,9 @@ const keys = JSON.parse(fs.readFileSync("scripts/ai/sample_keys.json", "utf8"));
 const CONFIGS = [
   { name: "haiku-5-5 생각없이(effort low)", model: "claude-haiku-5-5", effort: "low", thinking: "disabled" },
   { name: "haiku-5-5 기본(effort medium)", model: "claude-haiku-5-5", effort: "medium" },
-  { name: "sonnet-5-5 (effort medium)", model: "claude-sonnet-5-5", effort: "medium" }
-];
+  { name: "sonnet-5-5 (effort medium)", model: "claude-sonnet-5-5", effort: "medium" },
+  { name: "haiku-5-5 짧게 생각(effort low)", model: "claude-haiku-5-5", effort: "low" }
+].filter((c) => !process.env.AI_CONFIGS || process.env.AI_CONFIGS.split(",").some((k) => c.name.includes(k)));
 const PER_REQUEST = 15;
 
 const sha = (t) => crypto.createHash("sha1").update((t || "").trim()).digest("hex").slice(0, 16);
