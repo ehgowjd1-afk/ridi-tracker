@@ -2949,7 +2949,7 @@ function opinionCard(data) {
     list.appendChild(el("div", "exh", "캐릭터 과몰입 반응 (불만으로 세지 않음)"));
     var orow = el("div", "oprow");
     var otop = el("div", "optop");
-    otop.appendChild(el("b", "", "🔥 캐릭터에게 화내거나 욕한 반응"));
+    otop.appendChild(el("b", "", "🔥 캐릭터에게 화내거나 놀리며 몰입한 반응"));
     otop.appendChild(el("span", "opc", num(ov) + "건"));
     orow.appendChild(otop);
     (agg.overEx || []).slice(0, 2).forEach(function (e) { orow.appendChild(el("div", "ope", "“" + e[0] + "”")); });
