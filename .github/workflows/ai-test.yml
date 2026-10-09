@@ -1,0 +1,47 @@
+name: AI 리뷰 분석 시험
+
+# 사람이 검토해 둔 리뷰 120건을 Claude API(Haiku·Sonnet)로 분석해, 규칙 엔진과 정확도·비용을 비교하기 위한 시험입니다.
+# 손으로만 실행합니다. API 키는 저장소 시크릿 ANTHROPIC_API_KEY 를 씁니다.
+# 결과(리뷰 번호와 판정만, 원문 없음)는 하루만 보관하는 실행 결과물로 올립니다 — 저장소에는 커밋하지 않습니다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configs:
+        description: "시험할 설정 이름 일부(쉼표로 여러 개, 비우면 전부)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  ai-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk
+
+      - name: 시험 실행
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_CONFIGS: ${{ inputs.configs }}
+        run: node scripts/ai/ai_test.mjs ai_test_out.json
+
+      - name: 결과 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-test-out
+          path: ai_test_out.json
+          retention-days: 1
+          if-no-files-found: ignore
