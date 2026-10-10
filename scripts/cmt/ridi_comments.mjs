@@ -11,6 +11,8 @@ export const GAP_MS = 2000;
 const PAGE = 200;   // 한 번에 받는 댓글 수 (사이트가 허용하는 최대로 확인한 값)
 
 export class RidiBlocked extends Error {}
+// 글자 수로 자르기 — 이모지(두 칸짜리 글자)를 반쪽으로 자르면 AI 요청이 '올바르지 않은 JSON'으로 거절된다
+export const cut = (s, n) => Array.from(String(s ?? "")).slice(0, n).join("");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let lastAt = 0, n429 = 0;
 export let requests = 0;
@@ -62,7 +64,7 @@ export async function fetchSeries(id) {
   if (!m) throw new Error("회차 목록을 찾지 못했습니다: " + id);
   const list = JSON.parse(m[1]);
   const meta = (p) => { const x = html.match(new RegExp(`<meta property="og:${p}" content="([^"]*)"`)); return x ? x[1] : ""; };
-  const desc = meta("description").replace(/^.*?작품소개:\s*/, "").slice(0, 400);
+  const desc = cut(meta("description").replace(/^.*?작품소개:\s*/, ""), 400);
   const episodes = list.map((b) => {
     const p = b.price_info || {};
     return {

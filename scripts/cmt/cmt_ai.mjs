@@ -1,3 +1,5 @@
+import { cut } from "./ridi_comments.mjs";
+
 /* 회차 댓글 분석 — Claude API 부분 (2판: '반복되는 반응을 있는 그대로 세기')
  *
  * 1단계(Sonnet): 작품마다 댓글 표본을 읽고 '독자들이 반복해서 하는 말' 묶음(좋다는 말 / 많이 하는 말 / 불호)을 정한다.
@@ -173,7 +175,7 @@ function workBlock(work, ep, themes) {
 // 댓글 묶음 하나의 요청. comments: [{n, text, like, sp, best}]
 export function buildClassifyParams(cfg, work, ep, comments, textMax, themes) {
   const body = workBlock(work, ep, themes) + "\n\n[댓글]\n" +
-    comments.map((c) => `#${c.n} [좋아요 ${c.like}${c.best ? "·베스트" : ""}${c.sp ? "·스포" : ""}] ${c.text.trim().replace(/\s+/g, " ").slice(0, textMax)}`).join("\n") +
+    comments.map((c) => `#${c.n} [좋아요 ${c.like}${c.best ? "·베스트" : ""}${c.sp ? "·스포" : ""}] ${cut(c.text.trim().replace(/\s+/g, " "), textMax)}`).join("\n") +
     "\n\n위 댓글에 규칙대로 표시를 붙여 JSON으로 답하세요.";
   const req = {
     model: cfg.model,

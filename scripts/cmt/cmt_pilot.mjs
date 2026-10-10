@@ -16,7 +16,7 @@
  *   CMT_MOCK=1 이면 AI 대신 가짜 답으로 끝까지 돌려 본다 (돈 안 듦, 시험용).
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync, appendFileSync } from "node:fs";
-import { fetchSeries, fetchComments, RidiBlocked } from "./ridi_comments.mjs";
+import { fetchSeries, fetchComments, RidiBlocked, cut } from "./ridi_comments.mjs";
 import * as R from "./ridi_comments.mjs";
 import { CFG } from "./cmt_config.mjs";
 import * as AI from "./cmt_ai.mjs";
@@ -163,12 +163,17 @@ class Waiting extends Error { constructor(id) { super("일괄 처리가 아직 �
 // 일괄 보내기 → 보낸 즉시 예상 비용(est)을 먼저 기록 → 끝날 때까지 기다림 → 결과
 async function runBatch(label, requests, est, key) {
   if (!requests.length) throw new Error(`${label}: 보낼 요청이 없습니다`);
+  // 반쪽 난 이모지(짝 없는 서로게이트)가 있으면 서버가 요청 전체를 거절하므로 보내기 전에 막는다
+  const lone = /[�-�](?![�-�])|(?<![�-�])[�-�]/;
+  const bad = requests.find((r) => lone.test(r.params.messages.map((m) => m.content).join("")));
+  if (bad) throw new Error(`${label}: 깨진 글자가 든 요청(${bad.custom_id})이 있어 보내지 않습니다`);
   if (MOCK) return mockBatch(label, requests);
   const c = await sdk();
   let b;
   try { b = await c.messages.batches.create({ requests }, { maxRetries: 0 }); }
   catch (e) {
-    charge(est, label + " 만들기 오류(생겼을 수 있어 예상치로 셈)");
+    // 서버가 요청 자체를 거절(4xx)했으면 일괄이 안 생겼으니 셀 돈이 없다. 연결 끊김·5xx는 생겼을 수 있어 예상치로 센다.
+    if (!(e.status >= 400 && e.status < 500)) charge(est, label + " 만들기 오류(생겼을 수 있어 예상치로 셈)");
     throw new Error(`${label} 일괄을 만들지 못했습니다: ${e.message} — 콘솔(Batches)에서 생겼는지 확인 필요`);
   }
   report.batches[key] = b.id;
@@ -213,7 +218,7 @@ function costOf(model, u) {   // 일괄이라 반값
   return ((u.input_tokens || 0) * p.in + (u.output_tokens || 0) * p.out + (u.cache_read_input_tokens || 0) * p.in * 0.1 +
     (u.cache_creation_input_tokens || 0) * p.in * 1.25) / 1e6 / 2;
 }
-const clip = (t, n) => t.trim().replace(/\s+/g, " ").slice(0, n);
+const clip = (t, n) => cut(t.trim().replace(/\s+/g, " "), n);
 
 // ---------------- ③ 1단계: 반복되는 반응 찾기 ----------------
 // 표본: 회차마다 좋아요 상위 themeTop개 + 나머지에서 고르게 themeRest개
@@ -248,7 +253,7 @@ function applyThemes(works, out) {
     try {
       const valid = new Set(w.sample.map((c) => c.n));
       w.themes = (AI.parseJson(res.message).themes || []).slice(0, CFG.themeMax).map((t, i) => ({
-        id: "T" + (i + 1), bucket: AI.BUCKETS[t.bucket] ? t.bucket : "talk", label: String(t.label || "").slice(0, 60), def: String(t.def || "").slice(0, 160),
+        id: "T" + (i + 1), bucket: AI.BUCKETS[t.bucket] ? t.bucket : "talk", label: cut(t.label, 60), def: cut(t.def, 160),
         seed: [...new Set((t.refs || []).filter((n) => valid.has(n)))].slice(0, 5)
       }));
     } catch (e) { report.notes.push(`1단계 해석 실패: ${w.title} ${e.message}`); }
@@ -285,7 +290,7 @@ function applyLabels(works, out) {
       const c = byN.get(it.n);
       if (!c) continue;
       const b = { th: [...new Set((it.th || []).map((x) => String(x).trim().toUpperCase()).filter((x) => themeOf.has(x)))].slice(0, 2),
-        tn: it.tn, nd: [...new Set(it.nd || [])].slice(0, 3), st: it.st, nn: String(it.nn || "").slice(0, 20), ac: it.ac, cf: it.cf };
+        tn: it.tn, nd: [...new Set(it.nd || [])].slice(0, 3), st: it.st, nn: cut(it.nn, 20), ac: it.ac, cf: it.cf };
       // 속뜻과 맞추기: 과몰입·애정 투정·연재 아쉬움엔 이탈 신호 없음, 연재 아쉬움엔 서사 니즈 없음
       if (["char", "tease", "miss", "nudge"].includes(b.tn) && b.ac === "churn") b.ac = "none";
       if (b.tn === "miss") b.nd = [];
