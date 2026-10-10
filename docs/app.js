@@ -2911,7 +2911,8 @@ function opinionText(key) {
 // 독자 반응 — 별점 리뷰에서 반복되는 말 (scripts/cmt/rev_daily.mjs)
 //   rx.themes: [{b: like|talk|dislike, l: 묶음 이름, d: 기준, est: (약)개수, share: %, star: 평균 별점, low: 별1~3 %, likes, n, q: [[별점, 공감, 짧은 인용], ...]}]
 function reactionCard(rx) {
-  var ts = (rx && rx.themes) || [];
+  // 실제로 표시된 리뷰가 2개 이하인 묶음은 '반복'이라 보기 어려워 숨긴다
+  var ts = ((rx && rx.themes) || []).filter(function (t) { return (t.n || 0) >= 3; });
   if (!ts.length) return null;
   var st = rx.stats || {};
   var approx = st.exact === false;
@@ -2960,7 +2961,7 @@ function reactionCard(rx) {
   card.appendChild(list);
   card.appendChild(el("p", "hint", "AI(Claude)가 리뷰를 읽고 반복되는 말을 묶은 뒤 리뷰마다 어느 묶음인지 표시했고, 개수·평균 별점은 프로그램이 셌어요. " +
     (approx ? "리뷰가 많아 일부(별점 낮은 리뷰는 되도록 전부)만 읽고 전체로 환산한 수예요(‘약’). " : "") +
-    "리뷰 하나가 여러 묶음에 들어갈 수 있어요. 캐릭터에게 화내거나 휴재·완결을 아쉬워하는 말은 불호가 아니라 ‘많이 하는 말’로 셌어요. 줄을 누르면 리뷰가 더 나와요."));
+    "리뷰 하나가 여러 묶음에 들어갈 수 있고, 리뷰 2개 이하인 묶음은 숨겼어요. 캐릭터에게 화내거나 휴재·완결을 아쉬워하는 말은 불호가 아니라 ‘많이 하는 말’로 셌어요. 줄을 누르면 리뷰가 더 나와요."));
   return card;
 }
 
