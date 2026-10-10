@@ -1,7 +1,7 @@
 /* 별점 리뷰 '반복되는 반응' — 매일 작업 (예전 'AI 독자 반응 요약'을 대신함)
  *
  * 대상: 웹소설(전체·로맨스·로판·판타지·BL)·웹툰·BL웹툰의 일간·주간·월간 1~--top위(기본 50) 합집합, 순위 높은 순.
- * 다시 분석: 처음 / 방식(REV_VER)이 바뀜 / 리뷰가 15%·30개 넘게 늘어남 / 60일 지나고 새 리뷰가 있음.
+ * 다시 분석: 처음 / 방식(REV_VER)이 바뀜 / 별점별 칸(starTot)이 없음 / 리뷰가 15%·30개 넘게 늘어남 / 60일 지나고 새 리뷰가 있음.
  *   리뷰 수는 트래커가 매일 세는 docs/data/reviews/<id>.json 의 count 로 판단(리디에 따로 묻지 않음).
  * 돈: 하루 상한(--run-usd)과 이 달 한도(--limit-usd, 다른 AI 작업과 같은 state/ai_state.json) 안에서만 보낸다.
  *     일괄은 보내는 즉시 예상 비용을 먼저 기록하고, 결과를 받으면 실제 금액으로 맞춘다(batch.mjs).
@@ -77,6 +77,7 @@ function why(id, rxs) {
   if (f && f.n >= 3 && Date.now() - Date.parse(f.at) < 14 * DAY) return null;
   if (!rx) return { why: "처음", cnt };
   if (rx.ver !== C.REV_VER) return { why: "방식 바뀜", cnt };
+  if (!rx.starTot) return { why: "별점별 추가", cnt };   // 2026-10-10 별점별 보기 전에 만든 결과
   const base = (rx.stats && rx.stats.all) || 0;
   if (cnt && cnt >= base * 1.15 && cnt - base >= 30) return { why: `리뷰 ${base}→${cnt}`, cnt };
   if (cnt && Date.now() - Date.parse(rx.updated_at) > 60 * DAY && cnt - base >= 10) return { why: "60일 지남", cnt };
