@@ -411,6 +411,9 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .rxrow .rxm { color: var(--faint); font-size: .72rem; }
 .rxq .st { color: #e0a100; letter-spacing: -1px; margin-right: 4px; font-size: .7rem; }
 .rxempty { color: var(--faint); font-size: .8rem; }
+.rxchips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+.rxchips .chip { border: 1px solid var(--line); background: var(--card); color: var(--dim); border-radius: 999px; padding: 2px 10px; font-size: .76rem; cursor: pointer; }
+.rxchips .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* 회차별 댓글 수 */
 .ccbar { fill: var(--faint); opacity: .6; }
 .ccbar.up { fill: var(--new); opacity: 1; }

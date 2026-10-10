@@ -184,9 +184,17 @@ export function themeStats(w, report) {
   w.unlabeled = w.sample.length - lab.length;
   if (w.unlabeled) report.notes.push(`${w.title}: 표시 못 받은 리뷰 ${w.unlabeled}개 — 환산은 같은 층 리뷰로 보정(정확한 수 아님)`);
   const wsum = lab.reduce((s, r) => s + wt(r), 0) || 1;
+  // 별점별: 별점(1~5)마다 표시된 리뷰 합(묶음 비율의 분모)과 어느 묶음에도 안 들어간 리뷰
+  const star = (r) => (r.rating >= 1 && r.rating <= 5 ? r.rating - 1 : -1);
+  w.starTot = [0, 0, 0, 0, 0]; w.starUntag = [0, 0, 0, 0, 0];
+  for (const r of lab) { const k = star(r); if (k < 0) continue; w.starTot[k] += wt(r); if (!r.lab.th.length) w.starUntag[k] += wt(r); }
   for (const t of w.themes || []) {
     const rs = lab.filter((r) => r.lab.th.includes(t.id));
     const W = rs.reduce((s, r) => s + wt(r), 0);
+    t.byStar = [0, 0, 0, 0, 0];
+    for (const r of rs) { const k = star(r); if (k >= 0) t.byStar[k] += wt(r); }
+    // 별점마다 공감 많은 리뷰 몇 개(그 별점으로 볼 때 대표 리뷰)
+    t.refsByStar = [1, 2, 3, 4, 5].map((s) => rs.filter((r) => r.rating === s).sort((a, b) => b.likes - a.likes).slice(0, 4).map((r) => r.n));
     t.count = rs.length;
     t.est = Math.round(W);
     t.share = Math.round((W / wsum) * 1000) / 10;

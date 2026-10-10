@@ -88,14 +88,23 @@ const estWork = (cnt) => EST_THEME_WORK + Math.min(cnt || args.max, args.max) * 
 function publicFile(w, report) {
   const sc = C.scrubber(w, report);
   const byN = new Map(w.sample.map((r) => [r.n, r]));
+  const ok = (ns) => ns.map((n) => byN.get(n)).filter((r) => r && readable(r.content));
+  // 인용: 공감 많은 리뷰(전체 보기용) 먼저, 그다음 별점마다 2개씩(별점별 보기용) — 같은 리뷰는 한 번만
+  const quotesOf = (t) => {
+    const top = ok(t.refs).slice(0, QUOTES), seen = new Set(top.map((r) => r.n)), extra = [];
+    (t.refsByStar || []).forEach((ns) => ok(ns).filter((r) => !seen.has(r.n)).slice(0, 2).forEach((r) => { seen.add(r.n); extra.push(r); }));
+    return [...top, ...extra].map((r) => [r.rating, r.likes, clipQ(r.content)]);
+  };
   return {
     id: w.id, title: w.title, ver: C.REV_VER, updated_at: nowKst(), model: { theme: C.SONNET.model, tag: C.HAIKU.model },
     stats: { all: w.stats.all, meaningful: w.stats.meaningful, detailed: w.stats.detailed, stars: w.stats.stars, tagged: w.stats.tagged, exact: w.stats.exact },
     untagged: w.untagged, unlabeled: w.unlabeled,
+    // 별점(1~5)마다 표시된 리뷰 수(환산)와 묶음 없는 리뷰 수 — 별점별 보기의 분모
+    starTot: (w.starTot || []).map(Math.round), starUntag: (w.starUntag || []).map(Math.round),
     themes: (w.themes || []).filter((t) => t.count > 0).map((t) => ({
       id: t.id, b: t.bucket, l: sc(t.label) ?? cut(sc(t.def) ?? "", 40), d: sc(t.def) ?? "",
       est: t.est, share: t.share, star: t.avgStar, low: t.lowShare, likes: t.likes, n: t.count,
-      q: t.refs.map((n) => byN.get(n)).filter((r) => r && readable(r.content)).slice(0, QUOTES).map((r) => [r.rating, r.likes, clipQ(r.content)])
+      s: (t.byStar || []).map(Math.round), q: quotesOf(t)
     })).filter((t) => t.l)
   };
 }

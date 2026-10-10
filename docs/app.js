@@ -2909,58 +2909,91 @@ function opinionText(key) {
 // '독자 반응 요약' 카드 — AI가 리뷰 표본(별점 낮은·공감 많은·최근 리뷰)을 읽고 정리한 것 (scripts/ai/ai_summary.mjs)
 //   좋아하는 서사·케미 / 좋아한 점 / 아쉬운 점 / 과몰입 포인트 / 맞는 독자. 인용은 실제 리뷰에서 확인된 것만.
 // 독자 반응 — 별점 리뷰에서 반복되는 말 (scripts/cmt/rev_daily.mjs)
-//   rx.themes: [{b: like|talk|dislike, l: 묶음 이름, d: 기준, est: (약)개수, share: %, star: 평균 별점, low: 별1~3 %, likes, n, q: [[별점, 공감, 짧은 인용], ...]}]
+//   rx.themes: [{b: like|talk|dislike, l: 묶음 이름, d: 기준, est: (약)개수, share: %, star: 평균 별점, low: 별1~3 %, likes, n: 표시된 리뷰 수,
+//                s: [별1..별5 (약)개수], q: [[별점, 공감, 짧은 인용], ...]}]
+//   rx.starTot / rx.starUntag: 별점마다 표시된 리뷰 수(환산) / 그중 어느 묶음에도 안 들어간 수 — 별점별 보기의 분모
 function reactionCard(rx) {
   // 실제로 표시된 리뷰가 2개 이하인 묶음은 '반복'이라 보기 어려워 숨긴다
-  var ts = ((rx && rx.themes) || []).filter(function (t) { return (t.n || 0) >= 3; });
+  var all = (rx && rx.themes) || [];
+  var ts = all.filter(function (t) { return (t.n || 0) >= 3; });
   if (!ts.length) return null;
   var st = rx.stats || {};
   var approx = st.exact === false;
+  var hasStar = !!(rx.starTot && rx.starTot.length === 5 && all.some(function (t) { return t.s; }));
   var card = el("div", "card sumcard rxcard");
   var h = el("h3");
   h.innerHTML = "독자 반응 — 별점 리뷰에서 반복되는 말 <span class='r'>리뷰 " + num(st.all || 0) + "개 중 내용 있는 리뷰 " + num(st.meaningful || 0) +
     "개" + (approx ? "(" + num(st.tagged || 0) + "개를 읽고 전체로 환산)" : " 전부") + " · " + String(rx.updated_at || "").slice(0, 10) + "</span>";
   card.appendChild(h);
-  var list = el("div", "opn");
-  var maxEst = Math.max.apply(null, ts.map(function (t) { return t.est || 0; }).concat([1]));
   var stars = function (k) { var s = ""; for (var i = 0; i < 5; i++) s += i < k ? "★" : "☆"; return s; };
-  var section = function (bucket, title, emptyMsg) {
-    var arr = ts.filter(function (t) { return t.b === bucket; }).sort(function (x, y) { return (y.est || 0) - (x.est || 0); });
-    list.appendChild(el("div", "exh", title));
-    if (!arr.length) { if (emptyMsg) list.appendChild(el("div", "rxempty", emptyMsg)); return; }
-    arr.forEach(function (t) {
-      var row = el("div", "oprow sumrow rxrow rx" + bucket);
-      var top = el("div", "optop");
-      top.appendChild(el("b", "", t.l || ""));
-      top.appendChild(el("span", "opc", (approx ? "약 " : "") + num(t.est || 0) + "개 · " + (t.share || 0) + "%"));
-      row.appendChild(top);
-      var bar = el("div", "rxbar"); var bi = el("i"); bi.style.width = Math.max(2, Math.round(100 * (t.est || 0) / maxEst)) + "%"; bar.appendChild(bi);
-      row.appendChild(bar);
-      var meta = "평균 ★" + (t.star != null ? t.star.toFixed(2) : "-") + ((t.low >= 10 || bucket === "dislike") ? " · 별 1~3개 " + (t.low || 0) + "%" : "") + " · 공감 " + num(t.likes || 0);
-      row.appendChild(el("div", "rxm", meta));
-      (t.q || []).forEach(function (q, i) {
-        var qd = el("div", "ope rxq" + (i ? " more hidden" : ""));
-        qd.appendChild(el("span", "st", stars(q[0])));
-        qd.appendChild(document.createTextNode("“" + q[2] + "”" + (q[1] ? " · 공감 " + num(q[1]) : "")));
-        row.appendChild(qd);
-      });
-      if ((t.q || []).length > 1) {
-        row.classList.add("hasex");
-        row.title = t.d || "";
-        row.addEventListener("click", function () {
-          Array.prototype.forEach.call(row.querySelectorAll(".more"), function (x) { x.classList.toggle("hidden"); });
-          row.classList.toggle("open");
-        });
-      }
-      list.appendChild(row);
+  var EMO = { like: "👍", talk: "💬", dislike: "👎" };
+  // 별점 고르기: 전체 / ★1 … ★5 (별점마다 전체 리뷰 수)
+  var view = 0;
+  var chips = null;
+  if (hasStar) {
+    chips = el("div", "rxchips");
+    [0, 1, 2, 3, 4, 5].forEach(function (k) {
+      var c = el("button", "chip" + (k === view ? " on" : ""), k ? "★" + k + " · " + num((st.stars && st.stars[k]) || 0) : "전체");
+      c.type = "button";
+      c.addEventListener("click", function () { view = k; Array.prototype.forEach.call(chips.children, function (x, i) { x.classList.toggle("on", i === k); }); draw(); });
+      chips.appendChild(c);
     });
-  };
-  section("like", "👍 좋다는 말", "");
-  section("talk", "💬 많이 하는 말", "");
-  section("dislike", "👎 불호", "뚜렷한 불호 없음 — 작품을 진지하게 비판하는 말이 반복되지 않았어요.");
+    card.appendChild(chips);
+  }
+  var list = el("div", "opn");
   card.appendChild(list);
+  var row = function (t, cnt, pct, maxCnt, k) {
+    var r = el("div", "oprow sumrow rxrow rx" + t.b);
+    var top = el("div", "optop");
+    top.appendChild(el("b", "", (k ? EMO[t.b] + " " : "") + (t.l || "")));
+    top.appendChild(el("span", "opc", (approx ? "약 " : "") + num(cnt) + "개 · " + pct + "%"));
+    r.appendChild(top);
+    var bar = el("div", "rxbar"); var bi = el("i"); bi.style.width = Math.max(2, Math.round(100 * cnt / (maxCnt || 1))) + "%"; bar.appendChild(bi);
+    r.appendChild(bar);
+    if (!k) r.appendChild(el("div", "rxm", "평균 ★" + (t.star != null ? t.star.toFixed(2) : "-") + ((t.low >= 10 || t.b === "dislike") ? " · 별 1~3개 " + (t.low || 0) + "%" : "") + " · 공감 " + num(t.likes || 0)));
+    var qs = (t.q || []).filter(function (q) { return !k || q[0] === k; });
+    if (!k) qs = qs.slice(0, 5);
+    qs.forEach(function (q, i) {
+      var qd = el("div", "ope rxq" + (i ? " more hidden" : ""));
+      qd.appendChild(el("span", "st", stars(q[0])));
+      qd.appendChild(document.createTextNode("“" + q[2] + "”" + (q[1] ? " · 공감 " + num(q[1]) : "")));
+      r.appendChild(qd);
+    });
+    if (qs.length > 1) {
+      r.classList.add("hasex");
+      r.title = t.d || "";
+      r.addEventListener("click", function () {
+        Array.prototype.forEach.call(r.querySelectorAll(".more"), function (x) { x.classList.toggle("hidden"); });
+        r.classList.toggle("open");
+      });
+    }
+    list.appendChild(r);
+  };
+  var draw = function () {
+    list.innerHTML = "";
+    if (!view) {
+      var maxEst = Math.max.apply(null, ts.map(function (t) { return t.est || 0; }).concat([1]));
+      [["like", "👍 좋다는 말", ""], ["talk", "💬 많이 하는 말", ""], ["dislike", "👎 불호", "뚜렷한 불호 없음 — 작품을 진지하게 비판하는 말이 반복되지 않았어요."]].forEach(function (sec) {
+        var arr = ts.filter(function (t) { return t.b === sec[0]; }).sort(function (x, y) { return (y.est || 0) - (x.est || 0); });
+        list.appendChild(el("div", "exh", sec[1]));
+        if (!arr.length) { if (sec[2]) list.appendChild(el("div", "rxempty", sec[2])); return; }
+        arr.forEach(function (t) { row(t, t.est || 0, t.share || 0, maxEst, 0); });
+      });
+      return;
+    }
+    // 별점 k: 그 별점 리뷰에서 많이 나온 말 (좋다는 말·많이 하는 말·불호를 섞어 많은 순)
+    var tot = rx.starTot[view - 1] || 0, un = rx.starUntag[view - 1] || 0;
+    var arr = all.filter(function (t) { return t.s && t.s[view - 1] >= 2; }).sort(function (x, y) { return y.s[view - 1] - x.s[view - 1]; }).slice(0, 12);
+    list.appendChild(el("div", "exh", "★" + view + " 리뷰에서 많이 나온 말 — 읽은 ★" + view + " 리뷰 " + (approx ? "약 " : "") + num(tot) + "개 기준" +
+      (tot ? " · 어느 묶음에도 안 들어간 리뷰 " + Math.round(100 * un / tot) + "%" : "")));
+    if (!arr.length) { list.appendChild(el("div", "rxempty", "이 별점에서 2개 넘게 반복된 말이 없어요.")); return; }
+    var maxS = arr[0].s[view - 1];
+    arr.forEach(function (t) { row(t, t.s[view - 1], tot ? Math.round(1000 * t.s[view - 1] / tot) / 10 : 0, maxS, view); });
+  };
+  draw();
   card.appendChild(el("p", "hint", "AI(Claude)가 리뷰를 읽고 반복되는 말을 묶은 뒤 리뷰마다 어느 묶음인지 표시했고, 개수·평균 별점은 프로그램이 셌어요. " +
     (approx ? "리뷰가 많아 일부(별점 낮은 리뷰는 되도록 전부)만 읽고 전체로 환산한 수예요(‘약’). " : "") +
+    (hasStar ? "별점 단추를 누르면 그 별점 리뷰에서 많이 나온 말을 볼 수 있어요(👍좋다는 말 💬많이 하는 말 👎불호). " : "") +
     "리뷰 하나가 여러 묶음에 들어갈 수 있고, 리뷰 2개 이하인 묶음은 숨겼어요. 캐릭터에게 화내거나 휴재·완결을 아쉬워하는 말은 불호가 아니라 ‘많이 하는 말’로 셌어요. 줄을 누르면 리뷰가 더 나와요."));
   return card;
 }
