@@ -1,0 +1,40 @@
+name: AI 독자 반응 요약 시험
+
+# 작품 몇 개의 '독자 반응 요약'을 Haiku·Sonnet으로 만들어 비교하기 위한 시험입니다. 손으로만 실행합니다.
+# 결과(요약과 표본 리뷰 번호만, 원문 없음)는 하루만 보관하는 실행 결과물로 올립니다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: "작품 ID (쉼표로, 비우면 기본 5개)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  summary-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk@0.128.0
+      - name: 시험 실행
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IDS: ${{ inputs.ids }}
+        run: node scripts/ai/ai_summary_test.mjs ai_summary_out.json "$IDS"
+      - name: 결과 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-summary-out
+          path: ai_summary_out.json
+          retention-days: 1
+          if-no-files-found: ignore
