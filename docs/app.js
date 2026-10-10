@@ -1993,9 +1993,16 @@ function openBook(id, ctxKey) {
       return softJSON("data/rc/" + m + "/" + rcShard(id) + ".json");
     })),
     // AI(Claude)가 자세한 리뷰를 읽고 분석한 결과 — 순위 상위 작품만 있음 (없으면 null)
-    softJSON("data/reviews_ai/" + id + ".json")
+    softJSON("data/reviews_ai/" + id + ".json"),
+    // AI가 쓴 '독자 반응 요약' (좋아하는 서사·케미, 좋아한 점, 아쉬운 점, 과몰입 포인트) — 순위 상위 작품만
+    softJSON("data/reviews_sum/" + id + ".json")
   ]).then(function (r) {
-    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean));
+    // 요약 뒤로 자세한 리뷰가 크게 늘었으면(순위 밖으로 나가 요약이 멈춘 작품 등) 낡은 요약은 보이지 않는다 — mergeAi 와 같은 생각
+    var sum = r[7];
+    var rd = (r[1] && r[1].analysis && r[1].analysis.dTotal) || 0;
+    var sb = (sum && sum.basis && sum.basis.detailed) || 0;
+    if (sum && sb && rd > sb * 1.2 && rd - sb >= 20) sum = null;
+    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean), sum);
   });
 }
 
@@ -2056,7 +2063,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") closeSheet();
 });
 
-function drawBook(id, detail, reviewData, months, ctxKey, rcMonths) {
+function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, sumData) {
   var b = D.latest.books[id] || (D.catalog && D.catalog[id]) || {};
   var body = $("#sheetBody");
   body.innerHTML = "";
@@ -2224,6 +2231,10 @@ function drawBook(id, detail, reviewData, months, ctxKey, rcMonths) {
       body.appendChild(bc);
     }
   }
+
+  // ── 독자 반응 요약 (AI) ──
+  var sc = summaryCard(sumData);
+  if (sc) body.appendChild(sc);
 
   // ── 리뷰 요소별 반응 (작화·스토리·캐릭터… 긍정/부정) ──
   var oc = opinionCard(reviewData);
@@ -2886,6 +2897,55 @@ function opinionText(key) {
   else if (w.indexOf(" ") >= 0) pred = w + "다";          // '매력 있' → '매력 있다', '잘 읽히' → '잘 읽히다'
   else pred = w;
   return kw ? kw + (hasBatchim(kw) ? "이 " : "가 ") + pred : pred;
+}
+
+// '독자 반응 요약' 카드 — AI가 리뷰 표본(별점 낮은·공감 많은·최근 리뷰)을 읽고 정리한 것 (scripts/ai/ai_summary.mjs)
+//   좋아하는 서사·케미 / 좋아한 점 / 아쉬운 점 / 과몰입 포인트 / 맞는 독자. 인용은 실제 리뷰에서 확인된 것만.
+function summaryCard(sd) {
+  var s = sd && sd.summary;
+  var cnt = function (a) { return (a && a.length) || 0; };
+  if (!s || !(cnt(s.tropes) + cnt(s.likes) + cnt(s.dislikes) + cnt(s.immersion))) return null;
+  var card = el("div", "card sumcard");
+  var h = el("h3");
+  h.innerHTML = "독자 반응 요약 <span class='r'>AI가 리뷰 " + num((sd.basis && sd.basis.sample) || 0) + "건을 읽고 정리 · " + (sd.updated_at || "").slice(0, 10) + "</span>";
+  card.appendChild(h);
+  if (s.headline) card.appendChild(el("p", "sumhead", s.headline));
+  var list = el("div", "opn");
+  var section = function (title, arr, cls, icon, label) {
+    if (!arr || !arr.length) return;
+    list.appendChild(el("div", "exh", title));
+    arr.forEach(function (it) {
+      var row = el("div", "oprow sumrow " + cls);
+      var top = el("div", "optop");
+      var b = el("b", "", icon + " ");
+      if (label(it)) b.appendChild(el("span", "sumtag", label(it)));
+      b.appendChild(document.createTextNode(it.point || ""));
+      top.appendChild(b);
+      if (it.n) top.appendChild(el("span", "opc", "리뷰 " + num(it.n) + "건"));
+      row.appendChild(top);
+      (it.quotes || []).forEach(function (q, i) {
+        var qd = el("div", "ope" + (i ? " more hidden" : ""), "“" + q + "”");
+        row.appendChild(qd);
+      });
+      if ((it.quotes || []).length > 1) {
+        row.classList.add("hasex");
+        row.addEventListener("click", function () {
+          Array.prototype.forEach.call(row.querySelectorAll(".more"), function (x) { x.classList.toggle("hidden"); });
+          row.classList.toggle("open");
+        });
+      }
+      list.appendChild(row);
+    });
+  };
+  section("💞 독자가 좋아하는 서사·케미", s.tropes, "exp", "", function (it) { return it.tag; });
+  section("👍 그 밖에 좋아한 점", s.likes, "exp", "", function () { return ""; });
+  section("👎 반복된 아쉬움", s.dislikes, "exn", "", function () { return ""; });
+  section("🔥 과몰입 포인트 (감정이 크게 터진 곳)", s.immersion, "", "", function (it) { return it.target; });
+  card.appendChild(list);
+  if (s.audience) card.appendChild(el("p", "sumaud", "이런 독자에게 — " + s.audience));
+  card.appendChild(el("p", "hint", "AI(Claude)가 자세한 리뷰 중 별점 낮은 리뷰·공감 많은 리뷰·최근 리뷰를 섞은 " +
+    num((sd.basis && sd.basis.sample) || 0) + "건을 읽고 정리했어요. 건수는 그 안에서 센 수이고, 인용은 실제 리뷰에 있는 것만 보여 줘요. 줄을 누르면 인용이 더 나와요."));
+  return card;
 }
 
 // 작품 전체에서 '공통 의견'(가장 많이 반복된 말)을 모은다: [[부호, 문장, 건수, 대표 발췌], ...]

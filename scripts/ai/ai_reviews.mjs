@@ -19,7 +19,7 @@
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
-import { makeClient, buildParams, parseMessage, costOf, PROD, PROMPT_VER } from "./review_ai.mjs";
+import { makeClient, buildParams, parseMessage, costOf, inFlightUsd, PROD, PROMPT_VER } from "./review_ai.mjs";
 
 const require = createRequire(import.meta.url);
 const RABSA = require("../../docs/rabsa.js");
@@ -285,33 +285,56 @@ async function waitFor(batchId) {
 
 // 일괄 만들기: SDK 자동 재시도는 끄고(서버엔 만들어졌는데 응답만 끊기면 두 번 결제될 수 있음),
 // 오류가 나면 방금 만들어진 같은 크기의 일괄이 있는지 찾아 그걸 쓴다. 없으면 이번엔 보내지 않는다.
-async function createBatch(requests) {
+// 끝까지 못 찾으면 '만들어졌을 수도 있음' 표시(state.unsure)를 남겨 다음 실행에서 다시 찾는다(그동안 그 작품들은 보내지 않음).
+function knownBatchIds() {
+  return new Set([...(state.pending || []), ...((state.sum && state.sum.pending) || [])].map((p) => p.batch_id));
+}
+async function findBatch(t0, n) {
+  const known = knownBatchIds();
+  for await (const b of client.messages.batches.list({ limit: 50 })) {
+    if (Date.parse(b.created_at) < t0 - 60000) break;
+    const rc = b.request_counts;
+    if (!known.has(b.id) && rc.processing + rc.succeeded + rc.errored + rc.canceled + rc.expired === n) return b;
+  }
+  return null;
+}
+async function createBatch(requests, pendingWorks) {
   const t0 = Date.now();
   try {
     return await client.messages.batches.create({ requests }, { maxRetries: 0 });
   } catch (e) {
     console.log(`  일괄 만들기 오류: ${e.message}`);
     if (e && e.status && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 409) return null;   // 요청 자체가 거절됨
-    const known = new Set(state.pending.map((p) => p.batch_id));
-    for (let k = 0; k < 3; k++) {
-      await sleep(20000);
-      try {
-        for await (const b of client.messages.batches.list({ limit: 20 })) {
-          if (Date.parse(b.created_at) < t0 - 60000) break;
-          const rc = b.request_counts;
-          const total = rc.processing + rc.succeeded + rc.errored + rc.canceled + rc.expired;
-          if (!known.has(b.id) && total === requests.length) { console.log(`  이미 만들어진 일괄 ${b.id}을 이어서 씁니다`); return b; }
-        }
-      } catch (e2) { console.log(`  일괄 목록 확인 실패: ${e2.message}`); }
+    for (const wait of [20000, 30000, 40000, 60000, 60000, 90000]) {   // 약 5분 동안 찾아본다
+      await sleep(wait);
+      try { const b = await findBatch(t0, requests.length); if (b) { console.log(`  이미 만들어진 일괄 ${b.id}을 이어서 씁니다`); return b; } }
+      catch (e2) { console.log(`  일괄 목록 확인 실패: ${e2.message}`); }
     }
+    state.unsure = { t0: new Date(t0).toISOString(), n: requests.length, prompt: PROMPT_VER, works: pendingWorks };
+    saveState();
     return null;
   }
+}
+// 지난 실행이 남긴 '만들어졌을 수도 있는 일괄'을 찾아 대기 목록에 올린다. 하루가 지나도 없으면 표시를 지운다.
+async function resolveUnsure() {
+  const u = state.unsure;
+  if (!u) return;
+  try {
+    const b = await findBatch(Date.parse(u.t0), u.n);
+    if (b) {
+      console.log(`  지난번에 만들어졌던 일괄 ${b.id}을 찾아 대기 목록에 올립니다`);
+      state.pending.push({ batch_id: b.id, prompt: u.prompt, created: b.created_at, works: u.works });
+      delete state.unsure;
+    } else if (Date.now() - Date.parse(u.t0) > 86400000) delete state.unsure;
+    saveState();
+  } catch (e) { console.log(`  지난 일괄 확인 실패: ${e.message}`); }
 }
 
 async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   console.log(`[AI 리뷰 분석] ${TODAY} / 모델 ${PROD.model} (${PROD.effort}) / 이 달 사용 $${(state.spend[MONTH] || 0).toFixed(2)} / 한도 $${args.limitUsd}`);
 
+  if (!args.dry) await resolveUnsure();
   // ① 지난 실행에서 기다리다 만 일괄 결과
   for (const p of state.pending.slice()) {
     if (args.dry) break;
@@ -365,11 +388,10 @@ async function main() {
   // 예전에 AI로 분석했지만 지금은 순위 밖인 작품도 새 리뷰만 이어서 (뒤로 — 시간·돈이 남을 때)
   const extra = args.only ? [] : Object.keys(state.works).filter((id) => !top.includes(id));
   const ids = top.concat(extra);
-  const busy = new Set(state.pending.flatMap((p) => p.works.map((w) => w.id)));
+  const busy = new Set(state.pending.flatMap((p) => p.works.map((w) => w.id)).concat(((state.unsure && state.unsure.works) || []).map((w) => w.id)));
   console.log(`  대상 ${top.length}작품 (상위 ${args.top}위, ${args.scope === "sub" ? "세부 장르 포함" : "장르별"}) + 예전 분석 이어가기 ${extra.length}작품`);
-  // 이미 보내 놓고 아직 결과를 못 받은 일괄의 예상 비용도 이 달 사용액으로 친다
-  const inFlight = state.pending.filter((p) => !p.charged)
-    .reduce((s, p) => s + p.works.reduce((t, w) => t + (w.rids || []).length, 0), 0) * EST_PER_REVIEW;
+  // 이미 보내 놓고 아직 결과를 못 받은 일괄(리뷰 분석 + 독자 반응 요약)의 예상 비용도 이 달 사용액으로 친다
+  const inFlight = inFlightUsd(state);
   const spent = (state.spend[MONTH] || 0) + inFlight;
   const roomCap = Math.floor(Math.max(0, args.limitUsd - spent) / EST_PER_REVIEW);   // 돈 한도 (넘지 않음)
   const cap = Math.min(args.maxReviews, roomCap);                                     // 이번 실행 크기 한도
@@ -423,12 +445,13 @@ async function main() {
       reqs.push({ custom_id: job.id + "__" + c, params: buildParams(PROD, work, chunk) });
     }
   }
-  const batch = await createBatch(reqs);
+  // 실행이 도중에 끊겨도 다음 실행이 결과를 받을 수 있게 먼저 기록 (원문 대신 리뷰 번호 목록만)
+  const pendingWorks = jobs.map((j) => ({
+    id: j.id, mode: j.mode, from_id: j.fromId, from_at: j.fromAt, to_id: j.lastId, to_at: j.lastAt, rc: j.rc, rids: j.reviews.map((r) => r.id) }));
+  const batch = await createBatch(reqs, pendingWorks);
   if (!batch) { console.log("  일괄을 만들지 못해 이번엔 보내지 않습니다 (다음 실행에서 다시)"); report.failed++; return; }
   console.log(`  일괄 ${batch.id}: 요청 ${reqs.length}개`);
-  // 실행이 도중에 끊겨도 다음 실행이 결과를 받을 수 있게 먼저 기록 (원문 대신 리뷰 번호 목록만)
-  state.pending.push({ batch_id: batch.id, prompt: PROMPT_VER, created: new Date().toISOString(), works: jobs.map((j) => ({
-    id: j.id, mode: j.mode, from_id: j.fromId, from_at: j.fromAt, to_id: j.lastId, to_at: j.lastAt, rc: j.rc, rids: j.reviews.map((r) => r.id) })) });
+  state.pending.push({ batch_id: batch.id, prompt: PROMPT_VER, created: new Date().toISOString(), works: pendingWorks });
   saveState();
 
   // ④ 끝나길 기다렸다 반영

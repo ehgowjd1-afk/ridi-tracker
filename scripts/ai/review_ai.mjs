@@ -147,3 +147,15 @@ export function costOf(model, u, batch) {
     (u.cache_read_input_tokens || 0) * p.in * 0.1 + (u.cache_creation_input_tokens || 0) * p.in * 1.25) / 1e6;
   return batch ? usd / 2 : usd;
 }
+
+// 아직 결과를 못 받아 돈을 세지 않은 일괄의 예상 비용 (리뷰 분석 + 독자 반응 요약) — 두 작업이 같은 값으로 한도를 본다
+export const EST_PER_REVIEW = 0.0002;    // 리뷰 분석: 리뷰 1건당 (일괄, 여유 있게)
+export const EST_PER_SUM_WORK = 0.08;    // 요약: 작품 1개당 (Sonnet 일괄, 여유 있게)
+export function inFlightUsd(state) {
+  const rev = (state.pending || []).filter((p) => !p.charged)
+    .reduce((s, p) => s + (p.works || []).reduce((t, w) => t + (w.rids || []).length, 0), 0) * EST_PER_REVIEW;
+  const sum = ((state.sum && state.sum.pending) || []).filter((p) => !p.charged)
+    .reduce((s, p) => s + (p.works || []).length * EST_PER_SUM_WORK, 0);
+  const unsure = ((state.unsure && state.unsure.n) || 0) * EST_PER_REVIEW * 15 + ((state.sum && state.sum.unsure && state.sum.unsure.n) || 0) * EST_PER_SUM_WORK;
+  return rev + sum + unsure;
+}

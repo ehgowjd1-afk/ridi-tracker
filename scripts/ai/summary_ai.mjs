@@ -63,7 +63,8 @@ export const SUMMARY_SYSTEM = `당신은 한국 웹소설·웹툰 플랫폼 리�
 - n은 실제로 그 말을 한 리뷰만 센다. 부풀리지 않는다. refs의 리뷰는 반드시 그 point를 직접 말한 리뷰여야 한다.
 - 별점 낮은 리뷰나 불만이 2건 이상 반복되면 dislikes를 비우지 않는다.
 - 한 리뷰의 같은 말을 dislikes와 immersion에 동시에 넣지 않는다(캐릭터에게 화내며 즐기면 immersion, 그 때문에 작품이 별로라면 dislikes).
-- 연재 주기·휴재·한 회 분량·기다리기 힘들다는 말은 작품 내용 평가가 아니므로 dislikes에 넣지 않는다.
+- 연재 주기·휴재·한 회 분량·기다리기 힘들다는 말은 작품 내용 평가가 아니므로 dislikes에도 immersion에도 넣지 않는다.
+- immersion은 작품 속 인물·장면·관계에 대한 감정 반응만 넣는다(다음 화를 기다리는 마음, 연재 따라가기 같은 읽는 습관은 넣지 않는다).
 - 쉬운 한국어, '~다' 체로 쓴다.`;
 
 // 표본 고르기: 별점 낮은 리뷰(최대 lowMax, 공감순) + 공감 많은 리뷰 + 최근 리뷰를 번갈아 넣고 글자 수 상한까지
@@ -116,23 +117,28 @@ export function buildSummaryParams(cfg, work, aspectsD, dTotal, sample) {
 
 // 인용이 실제 리뷰에 있는지 확인(공백 차이는 무시). 근거가 확인되지 않는 항목은 뺀다.
 const norm = (t) => (t || "").replace(/\s+/g, " ").trim();
+const squash = (t) => (t || "").replace(/\s+/g, "");   // 띄어쓰기 차이는 무시하고 대조
+// 긴 인용은 글자(코드 포인트) 단위로 잘라 이모지가 깨지지 않게, 잘렸으면 … 표시
+function clip(t, n) { const cp = Array.from(t); return cp.length > n ? cp.slice(0, n - 1).join("").trimEnd() + "…" : t; }
 export function verifySummary(sum, sample) {
-  const texts = sample.map((r) => norm(r.content));
+  const texts = sample.map((r) => squash(r.content));
   const stat = { items: 0, kept: 0, quotes: 0, quotesOk: 0 };
   const fix = (arr) => (arr || []).map((it) => {
     stat.items++;
-    const refs = (it.refs || []).filter((n) => Number.isInteger(n) && n >= 1 && n <= sample.length);
+    const refs = [...new Set((it.refs || []).filter((n) => Number.isInteger(n) && n >= 1 && n <= sample.length))];
     const quotes = [];
     for (const q of it.quotes || []) {
       stat.quotes++;
-      const nq = norm(q);
-      if (nq.length >= 4 && texts.some((t) => t.includes(nq))) { quotes.push(nq.slice(0, 60)); stat.quotesOk++; }
+      const sq = squash(q);
+      if (sq.length >= 4 && texts.some((t) => t.includes(sq))) { quotes.push(clip(norm(q), 60)); stat.quotesOk++; }
     }
-    if (!quotes.length && refs.length < 2) return null;   // 근거 없는 항목은 버림
+    if (!quotes.length) return null;   // 실제 리뷰에서 확인된 인용이 하나도 없으면 버림 (지어낸 항목 방지)
     stat.kept++;
     // 공감 수: 근거 리뷰들의 공감 합 (화면에서 '공감 많은 의견' 순서에 씀)
     const likes = refs.reduce((s, n) => s + (sample[n - 1].likes || 0), 0);
-    return Object.assign({}, it, { refs: refs.length, quotes, likes });
+    // 건수는 표본 안의 수여야 한다: 표본보다 크거나 숫자가 아니면 근거 리뷰 수로, 근거 수보다 작으면 근거 수로
+    const n = Number.isInteger(it.n) && it.n <= sample.length ? Math.max(it.n, refs.length) : refs.length;
+    return Object.assign({}, it, { n, refs: refs.length, quotes, likes });
   }).filter(Boolean);
   return {
     summary: { headline: norm(sum.headline), tropes: fix(sum.tropes), likes: fix(sum.likes), dislikes: fix(sum.dislikes),

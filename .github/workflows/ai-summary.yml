@@ -1,0 +1,83 @@
+name: AI 독자 반응 요약 (상위 작품)
+
+# scripts/ai/ai_summary.mjs 를 돌립니다.
+# 웹소설·웹툰 장르별 일간·주간·월간 1~30위 작품마다 리뷰 표본을 Claude(Sonnet)가 읽고
+# 좋아하는 서사·케미, 좋아한 점, 아쉬운 점, 과몰입 포인트를 정리해 docs/data/reviews_sum/ 에 저장합니다(원문 저장 안 함).
+# 요약이 없거나 자세한 리뷰가 꽤 늘어난 작품만 다시 만듭니다. Batches API(반값).
+# 돈은 리뷰 분석과 같은 state/ai_state.json 의 이 달 사용액으로 함께 셉니다(한도 기본 $30).
+
+on:
+  schedule:
+    - cron: "10 4 * * *"    # 한국시간 13:10 (리뷰 분석 07:10·19:10 과 겹치지 않게)
+  workflow_dispatch:
+    inputs:
+      limit_usd:
+        description: "이 달 AI 사용 한도(달러, 리뷰 분석과 합산)"
+        type: string
+        default: "30"
+      max_works:
+        description: "한 번에 요약할 작품 수 상한"
+        type: string
+        default: "300"
+      scope:
+        description: "genre = 장르별 30위 / sub = 세부 장르까지"
+        type: string
+        default: "genre"
+
+permissions:
+  contents: write
+
+# 리뷰 분석과 같은 상태 파일(state/ai_state.json)을 쓰므로 같은 줄에 세웁니다.
+concurrency:
+  group: ai-reviews
+  cancel-in-progress: false
+
+jobs:
+  ai-summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk@0.128.0
+
+      - name: 독자 반응 요약 만들기
+        timeout-minutes: 105
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LIMIT_USD: ${{ inputs.limit_usd || '30' }}
+          MAX_WORKS: ${{ inputs.max_works || '300' }}
+          SCOPE: ${{ inputs.scope || 'genre' }}
+        run: >
+          node scripts/ai/ai_summary.mjs --budget-min 100
+          --limit-usd "$LIMIT_USD" --max-works "$MAX_WORKS" --scope "$SCOPE"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/reviews_sum state/ai_state.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -q -m "AI 독자 반응 요약: $DATE"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1

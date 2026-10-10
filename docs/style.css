@@ -394,3 +394,13 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 /* 무난(그냥 그렇다) — 호평·아쉬움 사이 회색 */
 .aspmid { background: var(--faint); height: 100%; }
 .aspex .exm, .oprow.exm b { color: var(--dim); }
+
+/* 독자 반응 요약 (AI) */
+.sumhead { font-size: .92rem; line-height: 1.55; margin: 2px 0 10px; }
+.sumtag { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 7px; margin-right: 6px; border-radius: 999px; background: var(--chip); color: var(--accent); vertical-align: 1px; }
+.sumrow .optop b { font-weight: 400; line-height: 1.5; }
+.sumcard h3 .r { float: none; display: block; margin-top: 2px; }
+.sumcard h3::after { content: ""; display: block; clear: both; }
+.sumrow .ope { white-space: normal; }
+.sumrow.hasex { cursor: pointer; }
+.sumaud { font-size: .82rem; color: var(--dim); margin: 10px 0 0; line-height: 1.5; }
