@@ -18,12 +18,12 @@ const ITEM = (extra) => ({
 });
 export const SUMMARY_SCHEMA = {
   type: "object", additionalProperties: false,
-  required: ["headline", "likes", "dislikes", "wishes", "immersion", "audience"],
+  required: ["headline", "tropes", "likes", "dislikes", "immersion", "audience"],
   properties: {
     headline: { type: "string" },
     likes: { type: "array", items: ITEM({ element: { type: "string", enum: Object.keys(ELEMENTS) } }) },
     dislikes: { type: "array", items: ITEM({ element: { type: "string", enum: Object.keys(ELEMENTS) } }) },
-    wishes: { type: "array", items: ITEM({}) },
+    tropes: { type: "array", items: ITEM({ tag: { type: "string" } }) },
     immersion: { type: "array", items: ITEM({ target: { type: "string" } }) },
     audience: { type: "string" }
   }
@@ -37,13 +37,16 @@ export const SUMMARY_SYSTEM = `당신은 한국 웹소설·웹툰 플랫폼 리�
 
 ## 출력 (JSON)
 - headline: 독자 반응 전체를 1~2문장으로. 막연한 칭찬 대신 "무엇 때문에 좋아하고 무엇이 아쉬운지"를 구체적으로.
-- likes: 독자들이 반복해서 좋아한 점 3~6개.
+- tropes: 독자가 좋아하는 서사·케미 2~6개 — 가장 중요한 칸이다. 독자들이 반복해서 "이런 게 너무 좋다"고 말한 장면 흐름·관계 패턴·캐릭터 행동을 하나의 서사로 묶는다.
+  · tag: 장르 독자가 쓰는 짧은 이름(2~10자). 예: '여주한정 다정남', '집착공의 순애', '혐관에서 연인으로', '쌍방구원', '능력녀의 사이다', '입덕부정', '계략남의 직진'.
+  · point: 이 작품에서 그 서사가 어떻게 나오고 독자가 무엇에 반응하는지 구체적으로. 예: '남주가 다른 사람에겐 냉정하다가 여주 앞에서만 무너지고 질투하는 모습에 설렌다는 말이 반복된다'.
+  · "재밌다", "그림이 예쁘다", "필력이 좋다" 같은 일반 칭찬은 여기 넣지 않는다(likes로). 인물 관계·서사 전개·캐릭터 행동 패턴만.
+- likes: 그 밖에 독자들이 반복해서 좋아한 점 2~5개 (그림, 필력, 세계관, 전개 속도 등).
 - dislikes: 반복된 아쉬움 0~5개. 별점 낮은 리뷰를 반드시 살핀다. 한 명만 말한 것은 넣지 않는다.
-- wishes: 독자들이 바라는 것·고쳐 줬으면 하는 것 0~4개 (예: 외전에서 두 사람의 이후 이야기, 서브 커플 이야기, 연재 속도, 수위 조절, 특정 인물의 비중).
 - immersion: 과몰입 포인트 0~4개 — 독자들이 특히 감정적으로 크게 반응한 인물·장면·관계(분노, 오열, 설렘 폭발, 응원). target에 인물·장면·관계 이름.
 - audience: 이 작품이 특히 맞는 독자와, 안 맞을 수 있는 독자를 1~2문장으로 (리뷰에 근거해서만).
 
-각 항목(likes·dislikes·wishes·immersion)의 칸:
+각 항목(tropes·likes·dislikes·immersion)의 칸:
 - point: 구체적인 내용. "스토리가 좋다"가 아니라 "무엇이 왜 좋은지/아쉬운지". 예: '남주의 집착이 순애로 바뀌는 과정이 설렌다', '중반부터 서브 인물 이야기가 길어져 전개가 늘어진다', '여주가 위기마다 스스로 해결해 답답하지 않다'.
 - element (likes·dislikes만): 가장 가까운 요소 키 — ${Object.entries(ELEMENTS).map(([k, v]) => k + "(" + v + ")").join(", ")}
 - n: 표본 안에서 이 점을 말한 리뷰 수(직접 센 수).
@@ -54,9 +57,13 @@ export const SUMMARY_SYSTEM = `당신은 한국 웹소설·웹툰 플랫폼 리�
 - 표본 리뷰에 있는 내용만 쓴다. 지어내지 않는다. 핵심 반전·결말 같은 큰 스포일러는 쓰지 않는다.
 - 다른 작품, 같은 작가의 전작, 원작 소설 자체에 대한 말은 이 작품 평가에서 뺀다. 단 원작 대비 웹툰의 각색 평가는 likes/dislikes에 element adapt로 넣는다.
 - 캐릭터에게 화내거나 욕하는 반응은 작품 불만이 아니라 몰입이다 → immersion에 넣고 dislikes에 넣지 않는다. 다만 "캐릭터가 답답해서 하차"처럼 실제 불만이면 dislikes.
-- '끝나서 아쉽다, 보내기 싫다'는 애정이다 → dislikes에 넣지 않는다(wishes의 외전·후속 요청이면 wishes로).
+- '끝나서 아쉽다, 보내기 싫다', '외전 주세요'는 애정이다 → dislikes에 넣지 않는다.
 - 읽기 전의 기대·추측('재밌을 것 같아요')은 근거로 쓰지 않는다.
 - 많이 말한 것부터 쓴다. 비슷한 내용은 하나로 합친다.
+- n은 실제로 그 말을 한 리뷰만 센다. 부풀리지 않는다. refs의 리뷰는 반드시 그 point를 직접 말한 리뷰여야 한다.
+- 별점 낮은 리뷰나 불만이 2건 이상 반복되면 dislikes를 비우지 않는다.
+- 한 리뷰의 같은 말을 dislikes와 immersion에 동시에 넣지 않는다(캐릭터에게 화내며 즐기면 immersion, 그 때문에 작품이 별로라면 dislikes).
+- 연재 주기·휴재·한 회 분량·기다리기 힘들다는 말은 작품 내용 평가가 아니므로 dislikes에 넣지 않는다.
 - 쉬운 한국어, '~다' 체로 쓴다.`;
 
 // 표본 고르기: 별점 낮은 리뷰(최대 lowMax, 공감순) + 공감 많은 리뷰 + 최근 리뷰를 번갈아 넣고 글자 수 상한까지
@@ -128,7 +135,7 @@ export function verifySummary(sum, sample) {
     return Object.assign({}, it, { refs: refs.length, quotes, likes });
   }).filter(Boolean);
   return {
-    summary: { headline: norm(sum.headline), likes: fix(sum.likes), dislikes: fix(sum.dislikes), wishes: fix(sum.wishes),
+    summary: { headline: norm(sum.headline), tropes: fix(sum.tropes), likes: fix(sum.likes), dislikes: fix(sum.dislikes),
       immersion: fix(sum.immersion), audience: norm(sum.audience) },
     stat
   };

@@ -15,7 +15,7 @@ const IDS = (process.argv[3] || "4869004885,6360000001,4688000606,6210000001,304
 const CONFIGS = [
   { name: "haiku-5-5 (effort medium)", model: "claude-haiku-5-5", effort: "medium" },
   { name: "sonnet-5-5 (effort medium)", model: "claude-sonnet-5-5", effort: "medium" }
-];
+].filter((c) => !process.env.MODELS || process.env.MODELS.split(",").some((m) => c.model.includes(m)));
 const DATA = "docs/data/";
 const cat = JSON.parse(fs.readFileSync(DATA + "books.json", "utf8"));
 const sleep = (ms) => new Promise((z) => setTimeout(z, ms));

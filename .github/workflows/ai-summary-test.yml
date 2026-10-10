@@ -10,6 +10,10 @@ on:
         description: "작품 ID (쉼표로, 비우면 기본 5개)"
         type: string
         default: ""
+      models:
+        description: "모델(haiku,sonnet 중, 비우면 둘 다)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -29,6 +33,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IDS: ${{ inputs.ids }}
+          MODELS: ${{ inputs.models }}
         run: node scripts/ai/ai_summary_test.mjs ai_summary_out.json "$IDS"
       - name: 결과 올리기
         if: always()
