@@ -1,0 +1,92 @@
+name: 별점 리뷰 반복 반응 시범
+
+# scripts/cmt/rev_pilot.mjs 를 손으로만 돌립니다 (자동 실행 없음).
+# 작품 1~3개의 구매자 별점 리뷰를 로그인 없이 모아(작성자 아이디는 받지 않음),
+# AI로 반복 반응 묶음 찾기(Sonnet) → 리뷰마다 묶음·속뜻 표시(Haiku)를 합니다. 개수·평균 별점은 프로그램이 셉니다.
+# 결과(숫자·표시·묶음 — 리뷰 원문 없음)는 하루만 보관하는 실행 결과물로 올리고,
+# 저장소에는 이 달 AI 사용액(state/ai_state.json)만 커밋합니다. 기존 수집 파일은 건드리지 않습니다.
+# AI 일괄은 보내는 즉시 예상 비용을 먼저 기록하고, 끝나면 실제 금액으로 맞춥니다(중간에 끊겨도 사용액이 빠지지 않음).
+# API 키는 저장소 시크릿 ANTHROPIC_API_KEY 를 씁니다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: "작품 번호(쉼표로 1~3개)"
+        type: string
+        default: "5163001179,5103000637"
+      max:
+        description: "작품당 표시할 리뷰 수 상한(넘으면 별점 낮은 리뷰 우선 + 나머지 무작위, 개수는 환산)"
+        type: string
+        default: "1200"
+      cap_usd:
+        description: "이번 시범 비용 상한(달러) — 예상이 넘으면 보내지 않음"
+        type: string
+        default: "2"
+
+permissions:
+  contents: write
+
+# AI 작업끼리 겹치지 않게 AI 리뷰 분석·요약과 같은 순서 줄에 섭니다 (돈 기록 파일을 같이 씀).
+concurrency:
+  group: ai-reviews
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk@0.128.0
+
+      # 입력값은 환경 변수로 넘긴다 (명령줄에 바로 붙이지 않음). 형식이 이상하면 스크립트가 멈춘다.
+      - name: 시범 실행
+        timeout-minutes: 120
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IDS: ${{ inputs.ids }}
+          MAX: ${{ inputs.max }}
+          CAP_USD: ${{ inputs.cap_usd }}
+        run: >
+          node scripts/cmt/rev_pilot.mjs --ids "$IDS" --max "$MAX" --cap-usd "$CAP_USD"
+          --limit-usd 30 --wait-min 100
+          --out rev_pilot_out.json --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 올리기 (하루 보관)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rev-pilot-out
+          path: rev_pilot_out.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: AI 사용액 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add state/ai_state.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          git commit -q -m "별점 리뷰 반복 반응 시범: AI 사용액 기록"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1

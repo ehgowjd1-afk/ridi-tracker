@@ -21,6 +21,7 @@ import * as R from "./ridi_comments.mjs";
 import { CFG } from "./cmt_config.mjs";
 import * as AI from "./cmt_ai.mjs";
 import { judge } from "./cmt_judge.mjs";
+import { createBatcher, costOf as rawCost } from "./batch.mjs";
 
 const STATE = "state/ai_state.json";
 const HAIKU = { model: "claude-haiku-5-5", effort: "medium" };
@@ -152,71 +153,21 @@ function pickSample(work) {
   }
 }
 
-// ---------------- 일괄 처리 도우미 ----------------
-let client = null;
-async function sdk() {
-  if (!client) { const { default: Anthropic } = await import("@anthropic-ai/sdk"); client = new Anthropic(); }
-  return client;
-}
-class Waiting extends Error { constructor(id) { super("일괄 처리가 아직 끝나지 않음: " + id); this.batchId = id; } }
-
-// 일괄 보내기 → 보낸 즉시 예상 비용(est)을 먼저 기록 → 끝날 때까지 기다림 → 결과
-async function runBatch(label, requests, est, key) {
-  if (!requests.length) throw new Error(`${label}: 보낼 요청이 없습니다`);
-  // 반쪽 난 이모지(짝 없는 서로게이트)가 있으면 서버가 요청 전체를 거절하므로 보내기 전에 막는다
-  const lone = /[�-�](?![�-�])|(?<![�-�])[�-�]/;
-  const bad = requests.find((r) => lone.test(r.params.messages.map((m) => m.content).join("")));
-  if (bad) throw new Error(`${label}: 깨진 글자가 든 요청(${bad.custom_id})이 있어 보내지 않습니다`);
-  if (MOCK) return mockBatch(label, requests);
-  const c = await sdk();
-  let b;
-  try { b = await c.messages.batches.create({ requests }, { maxRetries: 0 }); }
-  catch (e) {
-    // 서버가 요청 자체를 거절(4xx)했으면 일괄이 안 생겼으니 셀 돈이 없다. 연결 끊김·5xx는 생겼을 수 있어 예상치로 센다.
-    if (!(e.status >= 400 && e.status < 500)) charge(est, label + " 만들기 오류(생겼을 수 있어 예상치로 셈)");
-    throw new Error(`${label} 일괄을 만들지 못했습니다: ${e.message} — 콘솔(Batches)에서 생겼는지 확인 필요`);
-  }
-  report.batches[key] = b.id;
-  charge(est, label + " 보냄(예상치로 먼저 셈)");
-  log(`  ${label} 일괄 ${b.id} (${requests.length}건)`);
-  while (b.processing_status !== "ended") {
-    if (Date.now() - T_START > args.waitMin * 60e3) throw new Waiting(b.id);
-    await sleep(30000);
-    b = await c.messages.batches.retrieve(b.id);
-    log(`  … 처리 중 ${b.request_counts.processing} / 완료 ${b.request_counts.succeeded}`);
-  }
-  const out = new Map();
-  for await (const r of await c.messages.batches.results(b.id)) out.set(r.custom_id, r.result);
-  return { id: b.id, out };
-}
+// ---------------- 일괄 처리: batch.mjs ----------------
+const costOf = (model, u) => (MOCK ? 0 : rawCost(model, u));
 
 // 시험용 가짜 답 (CMT_MOCK=1): 요청 내용에서 번호를 읽어 그럴듯한 JSON을 만든다
-function mockBatch(label, requests) {
-  const ok = (obj) => ({ type: "succeeded", message: { stop_reason: "end_turn", usage: { input_tokens: 1000, output_tokens: 300 }, content: [{ type: "text", text: JSON.stringify(obj) }] } });
-  const out = new Map();
-  for (const r of requests) {
-    const body = r.params.messages[0].content;
-    const ns = [...body.matchAll(/#(\d+) \[/g)].map((m) => Number(m[1]));
-    if (r.custom_id.startsWith("t-")) out.set(r.custom_id, ok({ themes: [
-      { bucket: "like", label: "작화가 화보 같다", def: "작화·그림 칭찬", refs: ns.slice(0, 3) },
-      { bucket: "talk", label: "다음 화 기다림·휴재 아쉬움", def: "기다림·휴재", refs: ns.slice(3, 5) },
-      { bucket: "talk", label: "남주에게 화내기", def: "인물 타박", refs: ns.slice(5, 7) },
-      { bucket: "dislike", label: "그림체가 달라 보인다", def: "작화 일관성 진지한 지적", refs: ns.slice(7, 9) }] }));
-    else if (r.custom_id.startsWith("h-")) out.set(r.custom_id, ok({ comments: ns.map((n, i) => ({ n, th: [["T1"], ["T2"], ["T3"], ["T4"], [], ["T1", "T9"]][i % 6],
-      tn: ["praise", "miss", "char", "critic", "other", "tease"][i % 6], nd: i % 3 ? [] : ["rom_progress"], st: i % 3 ? "none" : "met", nn: i % 7 ? "" : "수위·씬",
-      ac: ["none", "stay", "churn", "pay"][i % 4], cf: ["hi", "mid", "lo"][i % 3] })) }));
-    else out.set(r.custom_id, ok({ needs: [{ axis: "romance", need: "관계 진전", state: "met", evidence: "가짜", size: "중", why: "가짜", refs: ns.slice(0, 3).concat([999999]) }] }));
-  }
-  log(`  ${label} (가짜 답) ${requests.length}건`);
-  return Promise.resolve({ id: "mock", out });
-}
-
-const PRICE = { "claude-haiku-5-5": { in: 0.10, out: 0.50 }, "claude-sonnet-5-5": { in: 2, out: 10 } };
-function costOf(model, u) {   // 일괄이라 반값
-  if (MOCK) return 0;
-  const p = PRICE[model];
-  return ((u.input_tokens || 0) * p.in + (u.output_tokens || 0) * p.out + (u.cache_read_input_tokens || 0) * p.in * 0.1 +
-    (u.cache_creation_input_tokens || 0) * p.in * 1.25) / 1e6 / 2;
+function mockAnswer(customId, body) {
+  const ns = [...body.matchAll(/#(\d+) \[/g)].map((m) => Number(m[1]));
+  if (customId.startsWith("t-")) return { themes: [
+    { bucket: "like", label: "작화가 화보 같다", def: "작화·그림 칭찬", refs: ns.slice(0, 3) },
+    { bucket: "talk", label: "다음 화 기다림·휴재 아쉬움", def: "기다림·휴재", refs: ns.slice(3, 5) },
+    { bucket: "talk", label: "남주에게 화내기", def: "인물 타박", refs: ns.slice(5, 7) },
+    { bucket: "dislike", label: "그림체가 달라 보인다", def: "작화 일관성 진지한 지적", refs: ns.slice(7, 9) }] };
+  if (customId.startsWith("h-")) return { comments: ns.map((n, i) => ({ n, th: [["T1"], ["T2"], ["T3"], ["T4"], [], ["T1", "T9"]][i % 6],
+    tn: ["praise", "miss", "char", "critic", "other", "tease"][i % 6], nd: i % 3 ? [] : ["rom_progress"], st: i % 3 ? "none" : "met", nn: i % 7 ? "" : "수위·씬",
+    ac: ["none", "stay", "churn", "pay"][i % 4], cf: ["hi", "mid", "lo"][i % 3] })) };
+  return { needs: [{ axis: "romance", need: "관계 진전", state: "met", evidence: "가짜", size: "중", why: "가짜", refs: ns.slice(0, 3).concat([999999]) }] };
 }
 const clip = (t, n) => cut(t.trim().replace(/\s+/g, " "), n);
 
@@ -416,16 +367,7 @@ function charge(usd, label) {
   writeFileSync(STATE, JSON.stringify(state, null, 1) + "\n");
   log(`  ${label} 비용 $${usd.toFixed(4)} → 이 달 합계 $${state.spend[MONTH].toFixed(2)}`);
 }
-// 단계 하나: 보내고(예상치 먼저 셈) → 결과 반영 → 실제 금액으로 맞춤(실제 − 예상). 못 기다리면 예상치가 그대로 남는다.
-async function stage(label, reqs, est, key, apply) {
-  let r;
-  try { r = await runBatch(label, reqs, est, key); }
-  catch (e) { if (e instanceof Waiting) report.notes.push(e.message + " — 예상 비용으로 기록됨"); throw e; }
-  const usd = apply(r.out);
-  report.cost[key] = usd;
-  charge(usd - (MOCK ? 0 : est), label + " 실제 금액으로 맞춤");
-  return usd;
-}
+const { stage } = createBatcher({ mock: MOCK, mockAnswer, waitMin: args.waitMin, tStart: T_START, charge, report, log });
 
 try {
   const events = loadEvents();
