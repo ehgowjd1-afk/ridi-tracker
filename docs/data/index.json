@@ -48,16 +48,17 @@
   "2026-10-06",
   "2026-10-07",
   "2026-10-08",
-  "2026-10-09"
+  "2026-10-09",
+  "2026-10-10"
  ],
  "months": [
   "2026-08",
   "2026-09",
   "2026-10"
  ],
- "updated_at": "2026-10-09T12:18:21+09:00",
- "latest_date": "2026-10-09",
- "book_count": 12328,
+ "updated_at": "2026-10-10T11:41:06+09:00",
+ "latest_date": "2026-10-10",
+ "book_count": 12324,
  "ranking_count": 189,
  "event_count": 573,
  "sections": {
@@ -73,7 +74,7 @@
  },
  "last_run": {
   "requests": 474,
-  "seconds": 1349.0,
+  "seconds": 1348.7,
   "failures": [],
   "reviews": {
    "books": 0,
@@ -82,5 +83,5 @@
   "details": 200,
   "rate_limit_hits": 0
  },
- "ended_count": 3947
+ "ended_count": 3962
 }
