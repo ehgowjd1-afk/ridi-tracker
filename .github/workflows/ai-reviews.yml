@@ -7,9 +7,11 @@ name: AI 리뷰 분석 (상위 작품)
 # API 키는 저장소 시크릿 ANTHROPIC_API_KEY 를 씁니다.
 
 on:
-  schedule:
-    - cron: "10 22 * * *"   # 한국시간 07:10
-    - cron: "10 10 * * *"   # 한국시간 19:10
+  # 자동 실행 잠시 멈춤(2026-10-10): 이 달 AI 돈을 '별점 리뷰 반복 반응'(rev-reactions.yml)에 먼저 쓰기로 함.
+  #   이미 분석한 작품의 결과는 그대로 쓰이고, 나머지는 무료 규칙 엔진 막대가 보임. 다시 켜려면 아래 두 줄의 #을 지움.
+  # schedule:
+  #   - cron: "10 22 * * *"   # 한국시간 07:10
+  #   - cron: "10 10 * * *"   # 한국시간 19:10
   workflow_dispatch:
     inputs:
       limit_usd:

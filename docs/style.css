@@ -402,5 +402,21 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .sumcard h3 .r { float: none; display: block; margin-top: 2px; }
 .sumcard h3::after { content: ""; display: block; clear: both; }
 .sumrow .ope { white-space: normal; }
+/* 독자 반응(별점 리뷰에서 반복되는 말) */
+.rxrow .optop b { font-weight: 500; }
+.rxrow .rxbar { height: 4px; background: var(--chip); border-radius: 2px; margin: 3px 0 2px; }
+.rxrow .rxbar i { display: block; height: 4px; border-radius: 2px; background: var(--new); }
+.rxrow.rxtalk .rxbar i { background: var(--accent); }
+.rxrow.rxdislike .rxbar i { background: var(--up); }
+.rxrow .rxm { color: var(--faint); font-size: .72rem; }
+.rxq .st { color: #e0a100; letter-spacing: -1px; margin-right: 4px; font-size: .7rem; }
+.rxempty { color: var(--faint); font-size: .8rem; }
+/* 회차별 댓글 수 */
+.ccbar { fill: var(--faint); opacity: .6; }
+.ccbar.up { fill: var(--new); opacity: 1; }
+.ccbar.down { fill: var(--up); opacity: 1; }
+.ccbar.young { opacity: .3; }
+.cclab { fill: var(--faint); font-size: 9px; }
+.ccflag { fill: var(--text); font-size: 9px; font-weight: 600; }
 .sumrow.hasex { cursor: pointer; }
 .sumaud { font-size: .82rem; color: var(--dim); margin: 10px 0 0; line-height: 1.5; }

@@ -1,0 +1,86 @@
+name: 별점 리뷰 반복 반응 (상위 작품)
+
+# scripts/cmt/rev_daily.mjs 를 매일 돌립니다. 예전 'AI 독자 반응 요약'(ai-summary.yml)을 대신합니다.
+# 웹소설(전체·로맨스·로판·판타지·BL)·웹툰·BL웹툰의 일간·주간·월간 1~50위 작품의 구매자 별점 리뷰를 모아,
+# AI가 반복되는 반응 묶음을 정하고(Sonnet) 리뷰마다 묶음을 표시하면(Haiku) 개수·평균 별점은 프로그램이 셉니다.
+# 결과: docs/data/reviews_rx/<id>.json (묶음·숫자 + 묶음마다 60자 이내 대표 리뷰 몇 개, 아이디 없음).
+# 돈: 하루 상한과 이 달 한도(state/ai_state.json, 다른 AI 작업과 같이 셈) 안에서만, 순위 높은 작품부터.
+# API 키는 저장소 시크릿 ANTHROPIC_API_KEY 를 씁니다.
+
+on:
+  schedule:
+    - cron: "10 4 * * *"    # 한국시간 13:10
+  workflow_dispatch:
+    inputs:
+      run_usd:
+        description: "이번 실행 비용 상한(달러, 예상치 기준 — 실제는 보통 그 절반쯤)"
+        type: string
+        default: "6"
+      max_works:
+        description: "이번에 분석할 작품 수 상한"
+        type: string
+        default: "40"
+      limit_usd:
+        description: "이 달 AI 사용 한도(달러)"
+        type: string
+        default: "30"
+
+permissions:
+  contents: write
+
+# AI 작업끼리 겹치지 않게 같은 순서 줄에 섭니다 (돈 기록 파일을 같이 씀).
+concurrency:
+  group: ai-reviews
+  cancel-in-progress: false
+
+jobs:
+  rx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk@0.128.0
+
+      # 입력값은 환경 변수로 넘긴다 (명령줄에 바로 붙이지 않음). 숫자가 아니면 스크립트가 멈춘다.
+      - name: 분석 실행
+        timeout-minutes: 120
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUN_USD: ${{ inputs.run_usd || '6' }}
+          MAX_WORKS: ${{ inputs.max_works || '40' }}
+          LIMIT_USD: ${{ inputs.limit_usd || '30' }}
+        run: >
+          node scripts/cmt/rev_daily.mjs --run-usd "$RUN_USD" --max-works "$MAX_WORKS" --limit-usd "$LIMIT_USD"
+          --wait-min 100 --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          for p in docs/data/reviews_rx state/ai_state.json state/rev_rx.json; do
+            if [ -e "$p" ]; then git add "$p"; fi
+          done
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -q -m "별점 리뷰 반복 반응: $DATE"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1

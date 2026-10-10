@@ -1994,15 +1994,17 @@ function openBook(id, ctxKey) {
     })),
     // AI(Claude)가 자세한 리뷰를 읽고 분석한 결과 — 순위 상위 작품만 있음 (없으면 null)
     softJSON("data/reviews_ai/" + id + ".json"),
-    // AI가 쓴 '독자 반응 요약' (좋아하는 서사·케미, 좋아한 점, 아쉬운 점, 과몰입 포인트) — 순위 상위 작품만
-    softJSON("data/reviews_sum/" + id + ".json")
+    // 별점 리뷰에서 반복되는 반응(AI가 묶고 개수는 프로그램이 셈) — 순위 상위 작품만 (scripts/cmt/rev_daily.mjs)
+    softJSON("data/reviews_rx/" + id + ".json"),
+    // 회차별 댓글 수 — 순위에 나온 웹툰 (scripts/cmt/cmt_counts.mjs)
+    softJSON("data/cmt_counts/" + id + ".json")
   ]).then(function (r) {
-    // 요약 뒤로 자세한 리뷰가 크게 늘었으면(순위 밖으로 나가 요약이 멈춘 작품 등) 낡은 요약은 보이지 않는다 — mergeAi 와 같은 생각
-    var sum = r[7];
-    var rd = (r[1] && r[1].analysis && r[1].analysis.dTotal) || 0;
-    var sb = (sum && sum.basis && sum.basis.detailed) || 0;
-    if (sum && sb && rd > sb * 1.2 && rd - sb >= 20) sum = null;
-    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean), sum);
+    // 반복 반응 분석 뒤로 리뷰가 크게 늘었으면(순위 밖으로 나가 분석이 멈춘 작품 등) 낡은 카드 대신 매일 갱신되는 '공통 의견'을 보여 준다
+    var rx = r[7];
+    var cntNow = (r[1] && (r[1].count || (r[1].analysis && r[1].analysis.total))) || 0;
+    var rb = (rx && rx.stats && rx.stats.all) || 0;
+    if (rx && rb && cntNow > rb * 1.2 && cntNow - rb >= 30) rx = null;
+    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean), rx, r[8]);
   });
 }
 
@@ -2063,7 +2065,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") closeSheet();
 });
 
-function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, sumData) {
+function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccData) {
   var b = D.latest.books[id] || (D.catalog && D.catalog[id]) || {};
   var body = $("#sheetBody");
   body.innerHTML = "";
@@ -2232,13 +2234,18 @@ function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, sumData) {
     }
   }
 
-  // ── 독자 반응 요약 (AI) ──
-  var sc = summaryCard(sumData);
-  if (sc) body.appendChild(sc);
+  // ── 회차별 댓글 수 (웹툰) ──
+  var ccc = cmtCountCard(ccData);
+  if (ccc) body.appendChild(ccc);
+
+  // ── 독자 반응: 별점 리뷰에서 반복되는 말 ──
+  //   예전 'AI 독자 반응 요약'(해석형)은 캐릭터에게 화내기·휴재 아쉬움 같은 애정 표현을 불만으로 읽는 문제가 있어 내렸다(2026-10-10).
+  //   반복 반응이 아직 없는 작품은 규칙 엔진의 '공통 의견'을 대신 보여 준다.
+  var rxc = reactionCard(rxData);
+  if (rxc) body.appendChild(rxc);
+  else { var oc = opinionCard(reviewData); if (oc) body.appendChild(oc); }
 
   // ── 리뷰 요소별 반응 (작화·스토리·캐릭터… 긍정/부정) ──
-  var oc = opinionCard(reviewData);
-  if (oc) body.appendChild(oc);
   var ac = aspectCard(reviewData);
   if (ac) body.appendChild(ac);
 
@@ -2901,34 +2908,44 @@ function opinionText(key) {
 
 // '독자 반응 요약' 카드 — AI가 리뷰 표본(별점 낮은·공감 많은·최근 리뷰)을 읽고 정리한 것 (scripts/ai/ai_summary.mjs)
 //   좋아하는 서사·케미 / 좋아한 점 / 아쉬운 점 / 과몰입 포인트 / 맞는 독자. 인용은 실제 리뷰에서 확인된 것만.
-function summaryCard(sd) {
-  var s = sd && sd.summary;
-  var cnt = function (a) { return (a && a.length) || 0; };
-  if (!s || !(cnt(s.tropes) + cnt(s.likes) + cnt(s.dislikes) + cnt(s.immersion))) return null;
-  var card = el("div", "card sumcard");
+// 독자 반응 — 별점 리뷰에서 반복되는 말 (scripts/cmt/rev_daily.mjs)
+//   rx.themes: [{b: like|talk|dislike, l: 묶음 이름, d: 기준, est: (약)개수, share: %, star: 평균 별점, low: 별1~3 %, likes, n, q: [[별점, 공감, 짧은 인용], ...]}]
+function reactionCard(rx) {
+  var ts = (rx && rx.themes) || [];
+  if (!ts.length) return null;
+  var st = rx.stats || {};
+  var approx = st.exact === false;
+  var card = el("div", "card sumcard rxcard");
   var h = el("h3");
-  h.innerHTML = "독자 반응 요약 <span class='r'>AI가 리뷰 " + num((sd.basis && sd.basis.sample) || 0) + "건을 읽고 정리 · " + (sd.updated_at || "").slice(0, 10) + "</span>";
+  h.innerHTML = "독자 반응 — 별점 리뷰에서 반복되는 말 <span class='r'>리뷰 " + num(st.all || 0) + "개 중 내용 있는 리뷰 " + num(st.meaningful || 0) +
+    "개" + (approx ? "(" + num(st.tagged || 0) + "개를 읽고 전체로 환산)" : " 전부") + " · " + String(rx.updated_at || "").slice(0, 10) + "</span>";
   card.appendChild(h);
-  if (s.headline) card.appendChild(el("p", "sumhead", s.headline));
   var list = el("div", "opn");
-  var section = function (title, arr, cls, icon, label) {
-    if (!arr || !arr.length) return;
+  var maxEst = Math.max.apply(null, ts.map(function (t) { return t.est || 0; }).concat([1]));
+  var stars = function (k) { var s = ""; for (var i = 0; i < 5; i++) s += i < k ? "★" : "☆"; return s; };
+  var section = function (bucket, title, emptyMsg) {
+    var arr = ts.filter(function (t) { return t.b === bucket; }).sort(function (x, y) { return (y.est || 0) - (x.est || 0); });
     list.appendChild(el("div", "exh", title));
-    arr.forEach(function (it) {
-      var row = el("div", "oprow sumrow " + cls);
+    if (!arr.length) { if (emptyMsg) list.appendChild(el("div", "rxempty", emptyMsg)); return; }
+    arr.forEach(function (t) {
+      var row = el("div", "oprow sumrow rxrow rx" + bucket);
       var top = el("div", "optop");
-      var b = el("b", "", icon + " ");
-      if (label(it)) b.appendChild(el("span", "sumtag", label(it)));
-      b.appendChild(document.createTextNode(it.point || ""));
-      top.appendChild(b);
-      if (it.n) top.appendChild(el("span", "opc", "리뷰 " + num(it.n) + "건"));
+      top.appendChild(el("b", "", t.l || ""));
+      top.appendChild(el("span", "opc", (approx ? "약 " : "") + num(t.est || 0) + "개 · " + (t.share || 0) + "%"));
       row.appendChild(top);
-      (it.quotes || []).forEach(function (q, i) {
-        var qd = el("div", "ope" + (i ? " more hidden" : ""), "“" + q + "”");
+      var bar = el("div", "rxbar"); var bi = el("i"); bi.style.width = Math.max(2, Math.round(100 * (t.est || 0) / maxEst)) + "%"; bar.appendChild(bi);
+      row.appendChild(bar);
+      var meta = "평균 ★" + (t.star != null ? t.star.toFixed(2) : "-") + ((t.low >= 10 || bucket === "dislike") ? " · 별 1~3개 " + (t.low || 0) + "%" : "") + " · 공감 " + num(t.likes || 0);
+      row.appendChild(el("div", "rxm", meta));
+      (t.q || []).forEach(function (q, i) {
+        var qd = el("div", "ope rxq" + (i ? " more hidden" : ""));
+        qd.appendChild(el("span", "st", stars(q[0])));
+        qd.appendChild(document.createTextNode("“" + q[2] + "”" + (q[1] ? " · 공감 " + num(q[1]) : "")));
         row.appendChild(qd);
       });
-      if ((it.quotes || []).length > 1) {
+      if ((t.q || []).length > 1) {
         row.classList.add("hasex");
+        row.title = t.d || "";
         row.addEventListener("click", function () {
           Array.prototype.forEach.call(row.querySelectorAll(".more"), function (x) { x.classList.toggle("hidden"); });
           row.classList.toggle("open");
@@ -2937,14 +2954,81 @@ function summaryCard(sd) {
       list.appendChild(row);
     });
   };
-  section("💞 독자가 좋아하는 서사·케미", s.tropes, "exp", "", function (it) { return it.tag; });
-  section("👍 그 밖에 좋아한 점", s.likes, "exp", "", function () { return ""; });
-  section("👎 반복된 아쉬움", s.dislikes, "exn", "", function () { return ""; });
-  section("🔥 과몰입 포인트 (감정이 크게 터진 곳)", s.immersion, "", "", function (it) { return it.target; });
+  section("like", "👍 좋다는 말", "");
+  section("talk", "💬 많이 하는 말", "");
+  section("dislike", "👎 불호", "뚜렷한 불호 없음 — 작품을 진지하게 비판하는 말이 반복되지 않았어요.");
   card.appendChild(list);
-  if (s.audience) card.appendChild(el("p", "sumaud", "이런 독자에게 — " + s.audience));
-  card.appendChild(el("p", "hint", "AI(Claude)가 자세한 리뷰 중 별점 낮은 리뷰·공감 많은 리뷰·최근 리뷰를 섞은 " +
-    num((sd.basis && sd.basis.sample) || 0) + "건을 읽고 정리했어요. 건수는 그 안에서 센 수이고, 인용은 실제 리뷰에 있는 것만 보여 줘요. 줄을 누르면 인용이 더 나와요."));
+  card.appendChild(el("p", "hint", "AI(Claude)가 리뷰를 읽고 반복되는 말을 묶은 뒤 리뷰마다 어느 묶음인지 표시했고, 개수·평균 별점은 프로그램이 셌어요. " +
+    (approx ? "리뷰가 많아 일부(별점 낮은 리뷰는 되도록 전부)만 읽고 전체로 환산한 수예요(‘약’). " : "") +
+    "리뷰 하나가 여러 묶음에 들어갈 수 있어요. 캐릭터에게 화내거나 휴재·완결을 아쉬워하는 말은 불호가 아니라 ‘많이 하는 말’로 셌어요. 줄을 누르면 리뷰가 더 나와요."));
+  return card;
+}
+
+// 회차별 댓글 수 (scripts/cmt/cmt_counts.mjs) — cc.eps: [[회차 id, 화 번호, 공개 시각, 센 때까지 댓글 수, 센 시각, [[공개 후 시간, 댓글 수], ...]]]
+//   같은 시점끼리만 비교한다: 센 때가 공개 30일 뒤인 회차는 '전체 수'끼리, 최근 회차는 7일째(없으면 3일째) 값끼리.
+//   기준선 = 직전 5화(같은 잣대가 있는 회차)의 가운데 값. 1.5배↑ 급증, 2배↑ 대박, 0.7배↓가 3화 연속이면 이탈 경고.
+//   여러 화를 한꺼번에 공개한 회차는 비교하지 않음.
+function cmtCountCard(cc) {
+  var HOUR = 3600e3;
+  var snapAt = function (snaps, lo, hi) { var s = (snaps || []).filter(function (x) { return x[0] >= lo && x[0] < hi; })[0]; return s ? s[1] : null; };
+  var rows = ((cc && cc.eps) || []).filter(function (e) { return e[1] !== null && e[3] !== null; }).map(function (e) {
+    var ca = (e[2] && e[4]) ? (Date.parse(e[4]) - Date.parse(e[2])) / HOUR : 1e9;   // 센 때 공개 후 몇 시간이었나
+    return { no: e[1], reg: e[2], n: e[3], ca: ca, mature: ca >= 720, c7: snapAt(e[5], 168, 216), c3: snapAt(e[5], 72, 120) };
+  });
+  if (rows.length < 3) return null;
+  var median = function (a) { var b = a.slice().sort(function (x, y) { return x - y; }), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+  rows.forEach(function (r, i) {
+    r.batch = i > 0 && r.reg && rows[i - 1].reg && Math.abs(Date.parse(r.reg) - Date.parse(rows[i - 1].reg)) <= HOUR;
+    r.ratio = null; r.by = "";
+    if (r.batch) return;
+    var key = r.mature ? "n" : r.c7 != null ? "c7" : r.c3 != null ? "c3" : null;
+    if (!key) return;
+    var prev = rows.slice(0, i).filter(function (x) { return !x.batch && (key === "n" ? x.mature : x[key] != null); }).slice(-5).map(function (x) { return x[key]; });
+    if (prev.length < 2) return;
+    var base = median(prev);
+    if (base > 0) { r.ratio = r[key] / base; r.by = key === "n" ? "전체 수" : key === "c7" ? "공개 7일째" : "공개 3일째"; }
+  });
+  rows.forEach(function (r, i) {
+    r.flags = [];
+    if (r.ratio != null && r.ratio >= 2) r.flags.push("대박"); else if (r.ratio != null && r.ratio >= 1.5) r.flags.push("급증");
+    if (i >= 2 && [0, 1, 2].every(function (k) { var x = rows[i - k]; return x.ratio != null && x.ratio <= 0.7; })) r.flags.push("이탈 경고");
+  });
+  var left = cc.done === false ? (cc.eps || []).filter(function (e) { return e[3] === null; }).length : 0;
+  var card = el("div", "card");
+  var h = el("h3");
+  var top = rows.slice().sort(function (a, b) { return b.n - a.n; })[0];
+  h.innerHTML = "회차별 댓글 수 <span class='r'>" + num(rows.length) + "화" + (left ? " (아직 세는 중 · " + num(left) + "회차 남음)" : "") +
+    " · 가장 많은 회차 " + top.no + "화(" + num(top.n) + "개) · " + String(cc.at || "").slice(0, 10) + " 기준</span>";
+  card.appendChild(h);
+  var NS = "http://www.w3.org/2000/svg";
+  var mk = function (tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+  var bw = Math.max(4, Math.min(22, Math.floor(680 / rows.length) - 2)), H = 150, W = rows.length * (bw + 2) + 20;
+  // 눈금: 1화처럼 혼자 튀는 막대(두 번째로 큰 값의 2배↑)가 있으면 그 막대는 위를 잘라 ▲로 표시하고 나머지가 잘 보이게
+  var sorted = rows.map(function (r) { return r.n; }).sort(function (a, b) { return b - a; });
+  var max = Math.max(1, sorted[0] > sorted[1] * 2 ? sorted[1] * 1.15 : sorted[0]);
+  // 짧은 연재는 늘어나지 않게 높이를 고정하고, 긴 연재는 옆으로 밀어 보게(chartwrap 가로 스크롤)
+  var svg = mk("svg", { viewBox: "0 0 " + W + " " + H, width: "100%", height: H, style: "display:block;min-width:" + Math.min(W, 640) + "px;max-width:" + Math.max(W, 320) + "px" });
+  var step = Math.ceil(rows.length / 20);
+  rows.forEach(function (r, i) {
+    var clipped = r.n > max;
+    var bh = Math.max(1, Math.round((Math.min(r.n, max) / max) * (H - 34))), x = 10 + i * (bw + 2), y = H - 16 - bh;
+    var cls = "ccbar" + (!r.mature ? " young" : "") + (r.flags.some(function (f) { return f !== "이탈 경고"; }) ? " up" : "") + (r.flags.indexOf("이탈 경고") >= 0 ? " down" : "");
+    var g = mk("g", {}, svg);
+    var t = mk("title", {}, g);
+    t.textContent = r.no + "화 · 댓글 " + num(r.n) + "개" + (r.reg ? " · 공개 " + r.reg.slice(0, 10) : "") +
+      (!r.mature ? " · 공개 " + Math.max(0, Math.round(r.ca / 24)) + "일째에 센 수(아직 느는 중)" : "") +
+      (r.c7 != null ? " · 7일째 " + num(r.c7) + "개" : r.c3 != null ? " · 3일째 " + num(r.c3) + "개" : "") +
+      (r.ratio != null ? " · 직전 회차들(" + r.by + ") 가운데 값의 " + r.ratio.toFixed(2) + "배" : "") +
+      (r.batch ? " · 여러 화 동시 공개(비교 안 함)" : "") + (r.flags.length ? " · " + r.flags.join(", ") : "");
+    mk("rect", { x: x, y: y, width: bw, height: bh, rx: 1.5, "class": cls }, g);
+    var mark = (clipped ? "▲" : "") + r.flags.map(function (f) { return f[0]; }).join("");
+    if (mark) { var ft = mk("text", { x: x + bw / 2, y: y - 3, "text-anchor": "middle", "class": "ccflag" }, g); ft.textContent = mark; }
+    if (i % step === 0) { var lt = mk("text", { x: x + bw / 2, y: H - 4, "text-anchor": "middle", "class": "cclab" }, g); lt.textContent = r.no; }
+  });
+  var w = el("div", "chartwrap"); w.appendChild(svg); card.appendChild(w);
+  card.appendChild(el("p", "hint", "막대 = 회차별 댓글 수(막대에 마우스를 올리면 자세히). ▲는 너무 커서 위를 자른 막대. 막대 위 글자: 대=대박(직전 회차들 가운데 값의 2배↑), 급=급증(1.5배↑), 이=이탈 경고(0.7배↓ 3화 연속). " +
+    "같은 시점끼리 비교해요: 공개 30일 지난 회차는 전체 수끼리, 최근 회차는 공개 7일째(없으면 3일째) 수끼리. 연한 막대는 아직 느는 중이고, 여러 화를 한꺼번에 공개한 회차는 비교하지 않아요. 1화는 새 독자가 계속 들어와 댓글이 많은 게 보통이에요." +
+    (left ? " 아직 앞 회차부터 세는 중이라 일부 회차가 빠져 있어요(매일 이어서 셉니다)." : "")));
   return card;
 }
 
