@@ -125,13 +125,16 @@ export function themeRequests(works, log) {
 // 불호 묶음은 서사·캐릭터에 대한 비판만(사용자 결정 2026-10-11). AI가 휴재·가격·작화 같은 불만을 불호로 묶었으면
 // 이름에 서사·캐릭터 말이 없을 때 '많이 하는 말'로 옮긴다(안전장치 — 지시문이 먼저, 이건 놓친 것만)
 const HIATUS = /휴재|지각|연재\s*(주기|속도|일정)|업데이트|업뎃|공지/;
-const NON_STORY = /분량|가격|비싸|돈|결제|소장가|포인트|이벤트|소개\s*문구|작품\s*소개|뷰어|플랫폼|오류|작화|그림|채색|인체|오타|오탈자|교정|맞춤법|번역/;
+const NON_STORY = /분량|가격|비싸|돈|결제|소장가|포인트|이벤트|소개\s*문구|작품\s*소개|뷰어|플랫폼|오류|오타|오탈자|교정|맞춤법|번역/;
+const ART = /작화|그림|채색|인체|작붕|연출|컷/;   // 웹툰은 작화 비판도 불호(사용자 결정 2026-10-11), 웹소설은 '많이 하는 말'
 const STORY = /서사|전개|스토리|내용|이야기|설정|세계관|결말|개연성|고구마|반복|늘어|지루|캐릭터|인물|성격|주인공|남주|여주|공이|수가|악역|조연|관계|감정선|캐붕|수위|고어|피폐|불행|원작|각색|장르|늘리기|질질|흥미|재미/;
-export function rebucket(t) {
+export function rebucket(t, webtoon) {
   if (t.bucket !== "dislike") return t;
   const label = t.label || "";
-  if (HIATUS.test(label)) return { ...t, bucket: "talk", moved: true };                        // 휴재·연재 운영 이야기는 무조건
-  if (NON_STORY.test(label) && !STORY.test(label)) return { ...t, bucket: "talk", moved: true }; // 가격·작화 등은 서사·캐릭터 말이 없을 때만
+  const content = (s) => STORY.test(s) || (webtoon && ART.test(s));                              // 불호로 칠 내용: 서사·캐릭터(+웹툰 작화)
+  const other = (s) => NON_STORY.test(s) || (!webtoon && ART.test(s));
+  if (HIATUS.test(label)) return { ...t, bucket: "talk", moved: true };                          // 휴재·연재 운영 이야기는 무조건
+  if (other(label) && !content(label)) return { ...t, bucket: "talk", moved: true };            // 가격·문장 등은 내용 말이 없을 때만
   return t;
 }
 export function applyThemes(works, out, report, costOf) {
@@ -144,9 +147,9 @@ export function applyThemes(works, out, report, costOf) {
       const valid = new Set(w.sample.map((r) => r.n));
       w.themes = (JSON.parse(textOf(res.message)).themes || []).slice(0, THEME_MAX).map((t, i) => ({
         id: "T" + (i + 1), bucket: AI.BUCKETS[t.bucket] ? t.bucket : "talk", label: cut(t.label, 60), def: cut(t.def, 160),
-        seed: [...new Set((t.refs || []).filter((n) => valid.has(n)))].slice(0, 5) })).map(rebucket);
+        seed: [...new Set((t.refs || []).filter((n) => valid.has(n)))].slice(0, 5) })).map((t) => rebucket(t, w.webtoon));
       const moved = w.themes.filter((t) => t.moved).length;
-      if (moved) report.notes.push(`${w.title}: 서사·캐릭터가 아닌 불호 묶음 ${moved}개를 '많이 하는 말'로 옮김`);
+      if (moved) report.notes.push(`${w.title}: 서사·캐릭터${w.webtoon ? "·작화" : ""}가 아닌 불호 묶음 ${moved}개를 '많이 하는 말'로 옮김`);
     } catch (e) { report.notes.push(`1단계 해석 실패: ${w.title} ${e.message}`); w.failed = "1단계 해석"; }
   }
   return usd;

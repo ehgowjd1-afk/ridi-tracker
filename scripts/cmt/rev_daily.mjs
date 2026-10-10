@@ -97,7 +97,7 @@ function publicFile(w, report) {
     return [...top, ...extra].map((r) => [r.rating, r.likes, clipQ(r.content)]);
   };
   return {
-    id: w.id, title: w.title, ver: C.REV_VER, updated_at: nowKst(), model: { theme: C.SONNET.model, tag: C.HAIKU.model },
+    id: w.id, title: w.title, webtoon: !!w.webtoon, ver: C.REV_VER, updated_at: nowKst(), model: { theme: C.SONNET.model, tag: C.HAIKU.model },
     stats: { all: w.stats.all, meaningful: w.stats.meaningful, detailed: w.stats.detailed, stars: w.stats.stars, tagged: w.stats.tagged, exact: w.stats.exact },
     untagged: w.untagged, unlabeled: w.unlabeled,
     // 별점(1~5)마다 표시된 리뷰 수(환산)와 묶음 없는 리뷰 수 — 별점별 보기의 분모
