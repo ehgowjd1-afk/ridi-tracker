@@ -2973,7 +2973,7 @@ function reactionCard(rx) {
     list.innerHTML = "";
     if (!view) {
       var maxEst = Math.max.apply(null, ts.map(function (t) { return t.est || 0; }).concat([1]));
-      [["like", "👍 좋다는 말", ""], ["talk", "💬 많이 하는 말", ""], ["dislike", "👎 불호", "뚜렷한 불호 없음 — 작품을 진지하게 비판하는 말이 반복되지 않았어요."]].forEach(function (sec) {
+      [["like", "👍 좋다는 말", ""], ["talk", "💬 많이 하는 말", ""], ["dislike", "👎 불호 (서사·캐릭터)", "뚜렷한 불호 없음 — 서사·캐릭터를 비판하는 말이 반복되지 않았어요."]].forEach(function (sec) {
         var arr = ts.filter(function (t) { return t.b === sec[0]; }).sort(function (x, y) { return (y.est || 0) - (x.est || 0); });
         list.appendChild(el("div", "exh", sec[1]));
         if (!arr.length) { if (sec[2]) list.appendChild(el("div", "rxempty", sec[2])); return; }
@@ -2994,7 +2994,7 @@ function reactionCard(rx) {
   card.appendChild(el("p", "hint", "AI(Claude)가 리뷰를 읽고 반복되는 말을 묶은 뒤 리뷰마다 어느 묶음인지 표시했고, 개수·평균 별점은 프로그램이 셌어요. " +
     (approx ? "리뷰가 많아 일부(별점 낮은 리뷰는 되도록 전부)만 읽고 전체로 환산한 수예요(‘약’). " : "") +
     (hasStar ? "별점 단추를 누르면 그 별점 리뷰에서 많이 나온 말을 볼 수 있어요(👍좋다는 말 💬많이 하는 말 👎불호). " : "") +
-    "리뷰 하나가 여러 묶음에 들어갈 수 있고, 리뷰 2개 이하인 묶음은 숨겼어요. 캐릭터에게 화내거나 휴재·완결을 아쉬워하는 말은 불호가 아니라 ‘많이 하는 말’로 셌어요. 줄을 누르면 리뷰가 더 나와요."));
+    "리뷰 하나가 여러 묶음에 들어갈 수 있고, 리뷰 2개 이하인 묶음은 숨겼어요. 불호는 서사·캐릭터를 비판하는 말만 셌고, 휴재·가격·작화 같은 불만이나 캐릭터에게 화내며 즐기는 말은 ‘많이 하는 말’로 셌어요. 줄을 누르면 리뷰가 더 나와요."));
   return card;
 }
 
