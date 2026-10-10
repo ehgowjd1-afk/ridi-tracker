@@ -11,6 +11,7 @@ export const GAP_MS = 2000;
 const PAGE = 200;   // 한 번에 받는 댓글 수 (사이트가 허용하는 최대로 확인한 값)
 
 export class RidiBlocked extends Error {}
+export class NoEpisodes extends Error {}   // 연재 회차가 없는 작품(단행본 등)
 // 글자 수로 자르기 — 이모지(두 칸짜리 글자)를 반쪽으로 자르면 AI 요청이 '올바르지 않은 JSON'으로 거절된다
 export const cut = (s, n) => Array.from(String(s ?? "")).slice(0, n).join("");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -61,7 +62,7 @@ export function epNo(title) {
 export async function fetchSeries(id) {
   const html = await get(`${BASE}/books/${id}`, true);
   const m = html.match(/var seriesBookListJson = (\[[\s\S]*?\]);\n/);
-  if (!m) throw new Error("회차 목록을 찾지 못했습니다: " + id);
+  if (!m) throw new NoEpisodes("회차 목록을 찾지 못했습니다: " + id);
   const list = JSON.parse(m[1]);
   const meta = (p) => { const x = html.match(new RegExp(`<meta property="og:${p}" content="([^"]*)"`)); return x ? x[1] : ""; };
   const desc = cut(meta("description").replace(/^.*?작품소개:\s*/, ""), 400);
@@ -89,6 +90,12 @@ const keep = (c) => ({
   rc: c.reply_count | 0,
   hidden: !!(c.blind_type || c.is_screened)
 });
+
+// 한 회차의 지금까지 댓글 수 (요청 1번)
+export async function fetchCount(epId) {
+  const j = await get(`${BASE}/apps/reading-data/serial-comment/${epId}/count`);
+  return Number(j && j.count) || 0;
+}
 
 // 한 회차의 댓글 전부(최신순). max개에서 멈춤. 받는 도중 새 댓글이 붙어 밀린 것은 번호로 걸러낸다.
 export async function fetchComments(epId, max = 6000) {

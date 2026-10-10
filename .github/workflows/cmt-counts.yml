@@ -1,0 +1,64 @@
+name: 회차별 댓글 수 (모든 웹툰)
+
+# scripts/cmt/cmt_counts.mjs 를 매일 돌립니다. AI는 쓰지 않습니다(무료).
+# 트래커 순위에 나온 웹툰 전부의 회차별 댓글 수를 로그인 없이 세어 docs/data/cmt_counts/ 에 숫자만 저장합니다
+# (댓글 내용·아이디 없음). 처음엔 순위 높은 웹툰부터 하루 약 1시간 30분씩 채우고, 다 센 뒤엔 새 회차만 셉니다.
+# 리디 부담: 요청 사이 2초, 너무 많음(429)이 3번 나오면 멈춥니다. 기존 수집 파일은 건드리지 않습니다.
+
+on:
+  schedule:
+    - cron: "10 15 * * *"   # 한국시간 00:10
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "이번에 쓸 시간(분)"
+        type: string
+        default: "90"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cmt-counts
+  cancel-in-progress: false
+
+jobs:
+  counts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 회차별 댓글 수 세기
+        timeout-minutes: 105
+        env:
+          MINUTES: ${{ inputs.minutes || '90' }}
+        run: node scripts/cmt/cmt_counts.mjs --minutes "$MINUTES" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/cmt_counts 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          DATE=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -q -m "회차별 댓글 수: $DATE"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1
