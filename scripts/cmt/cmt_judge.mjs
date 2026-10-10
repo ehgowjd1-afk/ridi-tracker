@@ -1,5 +1,8 @@
 /* 회차 댓글 분석 — 숫자 판정 (AI 결과를 받은 뒤 다시 계산할 수 있게 따로 둠)
- * [터짐][대박][논쟁][댓글 급증][이탈 경고][니즈 누적][니즈 폭발][핵심 니즈]
+ * [터짐][대박][논쟁][댓글 급증][이탈 경고] — 그래프에 찍는 표시(e.flags)
+ * [니즈 누적][니즈 폭발][핵심 니즈] — 참고용 니즈 맵에만 쓰는 표시(e.needFlags)
+ * '불만'은 속뜻(tn)이 진짜 작품 불만(critic)인 것만 센다 — 캐릭터 과몰입·애정 투정·연재 아쉬움은 불만이 아님.
+ * 하차 신호도 농담(애정 투정)이면 세지 않는다.
  */
 import { CFG } from "./cmt_config.mjs";
 
@@ -17,18 +20,22 @@ export function judge(w) {
       needs[d] ||= { met: 0, lack: 0, ask: 0, split: 0 };
       if (needs[d][c.lab.st] != null) needs[d][c.lab.st]++;
     }
-    const by = (key) => cs.reduce((o, c) => ((o[c.lab[key]] = (o[c.lab[key]] || 0) + 1), o), {});
-    e.ai = { n: cs.length, ty: by("ty"), ax: by("ax"), ev: by("ev"), needs,
-      churn: cnt((c) => c.lab.ac === "churn"), pay: cnt((c) => c.lab.ac === "pay"), stay: cnt((c) => c.lab.ac === "stay"), share: cnt((c) => c.lab.ac === "share"),
+    const by = (key) => cs.reduce((o, c) => (c.lab[key] != null && (o[c.lab[key]] = (o[c.lab[key]] || 0) + 1), o), {});
+    const critic = (c) => (c.lab.tn ? c.lab.tn === "critic" : c.lab.ty === "complain");
+    e.ai = { n: cs.length, ty: by("ty"), tn: by("tn"), ax: by("ax"), ev: by("ev"), needs,
+      critic: cnt(critic),
+      churn: cnt((c) => c.lab.ac === "churn" && c.lab.tn !== "tease"), pay: cnt((c) => c.lab.ac === "pay"), stay: cnt((c) => c.lab.ac === "stay"), share: cnt((c) => c.lab.ac === "share"),
       long: cnt((c) => c.lab.rd === "long"), lo: cnt((c) => c.lab.cf === "lo") };
-    const sh = (k) => (e.ai.n ? (e.ai.ty[k] || 0) / e.ai.n : 0);
-    e.ai.cheerShare = Math.round(sh("cheer") * 100) / 100;
-    e.ai.complainShare = Math.round(sh("complain") * 100) / 100;
+    // 환호 비율: 속뜻이 칭찬·애정 투정(반어 칭찬)인 댓글 (1판 결과는 유형 '환호형')
+    const cheer = (c) => (c.lab.tn ? ["praise", "tease"].includes(c.lab.tn) : c.lab.ty === "cheer");
+    e.ai.cheerShare = e.ai.n ? Math.round((cnt(cheer) / e.ai.n) * 100) / 100 : 0;
+    e.ai.complainShare = e.ai.n ? Math.round((e.ai.critic / e.ai.n) * 100) / 100 : 0;
     e.ai.churnShare = e.ai.n ? Math.round((e.ai.churn / e.ai.n) * 100) / 100 : 0;
   }
   // 댓글 수 판정 (분석 안 한 회차는 숫자만 → '댓글 급증')
   num.forEach((e, i) => {
     e.flags = [];
+    e.needFlags = [];
     const up = e.ratio != null && e.ratio >= CFG.boom;
     if (e.analyzed && e.ai && e.ai.n) {
       const prevA = an.filter((x) => x.ai && x.ai.n && num.indexOf(x) < i).slice(-CFG.baseEps);
@@ -53,10 +60,10 @@ export function judge(w) {
       const want = x.ask + x.lack;
       const wasBuilt = built;   // 폭발은 '앞 회차들에서 이미 쌓인' 니즈가 이 화에서 채워질 때만
       run = want >= CFG.needMin ? run + 1 : 0;
-      if (run >= CFG.needRun) { built = true; if (!e.flags.includes("니즈 누적")) e.flags.push("니즈 누적"); (e.needRun ||= []).push(d); }
+      if (run >= CFG.needRun) { built = true; if (!e.needFlags.includes("니즈 누적")) e.needFlags.push("니즈 누적"); (e.needRun ||= []).push(d); }
       if (wasBuilt && x.met >= CFG.burstMin) {
         const core = e.flags.some((f) => f === "터짐" || f === "대박");
-        e.flags.push(core ? "핵심 니즈" : "니즈 폭발");
+        e.needFlags.push(core ? "핵심 니즈" : "니즈 폭발");
         (e.needBurst ||= []).push(d);
         st.burstRatios.push(e.ratio);
         built = false; run = 0;

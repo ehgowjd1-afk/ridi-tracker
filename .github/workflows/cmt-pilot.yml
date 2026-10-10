@@ -1,9 +1,11 @@
 name: 회차 댓글 분석 시범
 
 # scripts/cmt/cmt_pilot.mjs 를 손으로만 돌립니다 (자동 실행 없음).
-# 작품 1~3개의 최근 N화 회차 댓글을 로그인 없이 모아(아이디·회원번호는 버림), AI로 분류(Haiku)·종합(Sonnet)합니다.
-# 결과(숫자·분류·요약 — 댓글 원문 없음)는 하루만 보관하는 실행 결과물로 올리고,
+# 작품 1~3개의 최근 N화 회차 댓글을 로그인 없이 모아(아이디·회원번호는 버림),
+# AI로 반복 반응 묶음 찾기(Sonnet) → 댓글마다 표시(Haiku) → 참고용 니즈 맵(Sonnet)을 만듭니다.
+# 결과(숫자·표시·묶음 — 댓글 원문 없음)는 하루만 보관하는 실행 결과물로 올리고,
 # 저장소에는 이 달 AI 사용액(state/ai_state.json)만 커밋합니다. 기존 수집 파일은 건드리지 않습니다.
+# AI 일괄은 보내는 즉시 예상 비용을 먼저 기록하고, 끝나면 실제 금액으로 맞춥니다(중간에 끊겨도 사용액이 빠지지 않음).
 # API 키는 저장소 시크릿 ANTHROPIC_API_KEY 를 씁니다.
 
 on:
@@ -21,14 +23,6 @@ on:
         description: "이번 시범 비용 상한(달러) — 예상이 넘으면 보내지 않음"
         type: string
         default: "2"
-      resume_haiku:
-        description: "(이어받기) 1단계 일괄 번호 msgbatch_… — 보통은 비워 둠"
-        type: string
-        default: ""
-      resume_sonnet:
-        description: "(이어받기) 2단계 일괄 번호 msgbatch_… — 보통은 비워 둠"
-        type: string
-        default: ""
 
 permissions:
   contents: write
@@ -64,11 +58,9 @@ jobs:
           IDS: ${{ inputs.ids }}
           EPS: ${{ inputs.eps }}
           CAP_USD: ${{ inputs.cap_usd }}
-          RESUME_HAIKU: ${{ inputs.resume_haiku }}
-          RESUME_SONNET: ${{ inputs.resume_sonnet }}
         run: >
           node scripts/cmt/cmt_pilot.mjs --ids "$IDS" --eps "$EPS" --cap-usd "$CAP_USD"
-          --limit-usd 30 --wait-min 45 --resume-haiku "$RESUME_HAIKU" --resume-sonnet "$RESUME_SONNET"
+          --limit-usd 30 --wait-min 100
           --out cmt_pilot_out.json --summary "$GITHUB_STEP_SUMMARY"
 
       - name: 결과 올리기 (하루 보관)
