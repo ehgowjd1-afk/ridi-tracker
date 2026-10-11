@@ -414,12 +414,38 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .rxchips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
 .rxchips .chip { border: 1px solid var(--line); background: var(--card); color: var(--dim); border-radius: 999px; padding: 2px 10px; font-size: .76rem; cursor: pointer; }
 .rxchips .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-/* 회차별 댓글 수 */
-.ccbar { fill: var(--faint); opacity: .6; }
-.ccbar.up { fill: var(--new); opacity: 1; }
-.ccbar.down { fill: var(--up); opacity: 1; }
-.ccbar.young { opacity: .3; }
-.cclab { fill: var(--faint); font-size: 9px; }
-.ccflag { fill: var(--text); font-size: 9px; font-weight: 600; }
+/* 회차별 댓글 수 — 누를 수 있는 세로 막대 (네이버 트래커와 같은 모양) */
+.cstat { font-size: .78rem; color: var(--dim); margin-top: -2px; }
+.cstat b { color: var(--text); font-weight: 600; }
+.cchart-wrap { position: relative; margin-top: 8px; }
+.cymax { position: absolute; top: -2px; left: 0; font-size: .66rem; color: var(--faint); pointer-events: none; }
+.cscroll { overflow-x: auto; overflow-y: hidden; padding-top: 14px; scrollbar-width: thin; }
+.cbars { display: flex; align-items: flex-end; gap: 1px; height: 118px; border-bottom: 1px solid var(--line); background: linear-gradient(var(--line) 1px, transparent 1px) 0 50%/100% 50% no-repeat; }
+.cbar { flex: 1 1 0; min-width: 2px; border: 0; padding: 0; margin: 0; background: var(--accent); opacity: .55; border-radius: 2px 2px 0 0; cursor: pointer; transition: opacity .1s; }
+.cbar:hover { opacity: .9; }
+.cbar.young { opacity: .25; }
+.cbar.k-up { background: var(--new); opacity: .9; }
+.cbar.k-down { background: var(--up); opacity: .9; }
+.cbar.clip { background-image: linear-gradient(var(--card) 3px, transparent 3px, transparent 6px, var(--card) 6px, var(--card) 8px, transparent 8px); }
+.cbar.sel { opacity: 1; outline: 2px solid var(--text); outline-offset: 0; }
+.cbar:focus-visible { outline: 2px solid var(--text); }
+.cxax { display: flex; justify-content: space-between; gap: 8px; font-size: .66rem; color: var(--faint); margin-top: 4px; }
+.cxax span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cleg { display: flex; align-items: center; gap: 3px; }
+.cleg i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-left: 6px; background: var(--accent); }
+.cleg i.k-up { background: var(--new); } .cleg i.k-down { background: var(--up); } .cleg i.young { opacity: .3; }
+.chint { font-size: .74rem; color: var(--dim); margin-top: 6px; min-height: 17px; }
+.cep { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--chip); }
+.ceph { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ceph b { font-size: .9rem; } .ceph span { font-size: .76rem; color: var(--dim); }
+.cchips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.cchip { font-size: .7rem; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: var(--card); color: var(--dim); border: 1px solid var(--line); }
+.cchip.k-up { color: var(--new); border-color: var(--new); }
+.cchip.k-down { color: var(--up); border-color: var(--up); }
+.cchip.c-ext { color: var(--faint); }
+.crow { display: flex; gap: 10px; margin-top: 7px; font-size: .82rem; line-height: 1.5; }
+.ck { flex: none; width: 64px; color: var(--faint); font-weight: 600; font-size: .76rem; padding-top: 1px; }
+.cv { min-width: 0; color: var(--text); }
+.cmuted2 { color: var(--faint); font-size: .74rem; }
 .sumrow.hasex { cursor: pointer; }
 .sumaud { font-size: .82rem; color: var(--dim); margin: 10px 0 0; line-height: 1.5; }

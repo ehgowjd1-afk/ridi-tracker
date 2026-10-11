@@ -3034,12 +3034,13 @@ function reactionCard(rx) {
   return card;
 }
 
-// 회차별 댓글 수 (scripts/cmt/cmt_counts.mjs) — cc.eps: [[회차 id, 화 번호, 공개 시각, 센 때까지 댓글 수, 센 시각, [[공개 후 시간, 댓글 수], ...]]]
+// 회차별 댓글 수 (scripts/cmt/cmt_counts.mjs) — 네이버 트래커처럼 누를 수 있는 세로 막대 + 고른 회차 정보 칸
+//   cc.eps: [[회차 id, 화 번호, 공개 시각, 센 때까지 댓글 수, 센 시각, [[공개 후 시간, 댓글 수], ...]]]
 //   같은 시점끼리만 비교한다: 센 때가 공개 30일 뒤인 회차는 '전체 수'끼리, 최근 회차는 7일째(없으면 3일째) 값끼리.
 //   기준선 = 직전 5화(같은 잣대가 있는 회차)의 가운데 값. 1.5배↑ 급증, 2배↑ 대박, 0.7배↓가 3화 연속이면 이탈 경고.
-//   여러 화를 한꺼번에 공개한 회차는 비교하지 않음.
+//   여러 화를 한꺼번에 공개한 회차는 비교하지 않음. 공개 간격이 평소(가운데 값)의 2배↑면 '휴재 후 복귀'.
 function cmtCountCard(cc) {
-  var HOUR = 3600e3;
+  var HOUR = 3600e3, DAY = 24 * HOUR;
   var snapAt = function (snaps, lo, hi) { var s = (snaps || []).filter(function (x) { return x[0] >= lo && x[0] < hi; })[0]; return s ? s[1] : null; };
   var rows = ((cc && cc.eps) || []).filter(function (e) { return e[1] !== null && e[3] !== null; }).map(function (e) {
     var ca = (e[2] && e[4]) ? (Date.parse(e[4]) - Date.parse(e[2])) / HOUR : 1e9;   // 센 때 공개 후 몇 시간이었나
@@ -3047,8 +3048,10 @@ function cmtCountCard(cc) {
   });
   if (rows.length < 3) return null;
   var median = function (a) { var b = a.slice().sort(function (x, y) { return x - y; }), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+  var gaps = [];
   rows.forEach(function (r, i) {
     r.batch = i > 0 && r.reg && rows[i - 1].reg && Math.abs(Date.parse(r.reg) - Date.parse(rows[i - 1].reg)) <= HOUR;
+    if (i > 0 && r.reg && rows[i - 1].reg && !r.batch) { r.gap = Date.parse(r.reg) - Date.parse(rows[i - 1].reg); gaps.push(r.gap); }
     r.ratio = null; r.by = "";
     if (r.batch) return;
     var key = r.mature ? "n" : r.c7 != null ? "c7" : r.c3 != null ? "c3" : null;
@@ -3058,47 +3061,82 @@ function cmtCountCard(cc) {
     var base = median(prev);
     if (base > 0) { r.ratio = r[key] / base; r.by = key === "n" ? "전체 수" : key === "c7" ? "공개 7일째" : "공개 3일째"; }
   });
+  var gapMid = gaps.length ? median(gaps) : null;
   rows.forEach(function (r, i) {
     r.flags = [];
     if (r.ratio != null && r.ratio >= 2) r.flags.push("대박"); else if (r.ratio != null && r.ratio >= 1.5) r.flags.push("급증");
     if (i >= 2 && [0, 1, 2].every(function (k) { var x = rows[i - k]; return x.ratio != null && x.ratio <= 0.7; })) r.flags.push("이탈 경고");
+    r.back = gapMid && r.gap && r.gap >= gapMid * 2 ? Math.round(r.gap / DAY) : 0;
   });
   var left = cc.done === false ? (cc.eps || []).filter(function (e) { return e[3] === null; }).length : 0;
-  var card = el("div", "card");
-  var h = el("h3");
+  var total = rows.reduce(function (t, r) { return t + r.n; }, 0);
   var top = rows.slice().sort(function (a, b) { return b.n - a.n; })[0];
-  h.innerHTML = "회차별 댓글 수 <span class='r'>" + num(rows.length) + "화" + (left ? " (아직 세는 중 · " + num(left) + "회차 남음)" : "") +
-    " · 가장 많은 회차 " + top.no + "화(" + num(top.n) + "개) · " + String(cc.at || "").slice(0, 10) + " 기준</span>";
-  card.appendChild(h);
-  var NS = "http://www.w3.org/2000/svg";
-  var mk = function (tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
-  var bw = Math.max(4, Math.min(22, Math.floor(680 / rows.length) - 2)), H = 150, W = rows.length * (bw + 2) + 20;
   // 눈금: 1화처럼 혼자 튀는 막대(두 번째로 큰 값의 2배↑)가 있으면 그 막대는 위를 잘라 ▲로 표시하고 나머지가 잘 보이게
   var sorted = rows.map(function (r) { return r.n; }).sort(function (a, b) { return b - a; });
-  var max = Math.max(1, sorted[0] > sorted[1] * 2 ? sorted[1] * 1.15 : sorted[0]);
-  // 짧은 연재는 늘어나지 않게 높이를 고정하고, 긴 연재는 옆으로 밀어 보게(chartwrap 가로 스크롤)
-  var svg = mk("svg", { viewBox: "0 0 " + W + " " + H, width: "100%", height: H, style: "display:block;min-width:" + Math.min(W, 640) + "px;max-width:" + Math.max(W, 320) + "px" });
-  var step = Math.ceil(rows.length / 20);
+  var cap = Math.max(1, sorted[0] > sorted[1] * 2 ? Math.round(sorted[1] * 1.15) : sorted[0]);
+  var up = function (r) { return r.flags.some(function (f) { return f !== "이탈 경고"; }); };
+  var card = el("div", "card ccard");
+  var h = el("h3");
+  h.innerHTML = "💬 회차별 댓글 수 <span class='r'>" + num(rows.length) + "화" + (left ? " (아직 세는 중 · " + num(left) + "회차 남음)" : "") + " · " + String(cc.at || "").slice(0, 10) + " 기준</span>";
+  card.appendChild(h);
+  var st = el("div", "cstat");
+  st.innerHTML = "회차 평균 <b>" + num(Math.round(total / rows.length)) + "</b> · 가장 많은 화 <b>" + top.no + "화</b> " + num(top.n) + "개";
+  card.appendChild(st);
+  var wrap = el("div", "cchart-wrap");
+  wrap.appendChild(el("div", "cymax", num(cap)));
+  var sc = el("div", "cscroll");
+  var bars = el("div", "cbars");
+  if (rows.length > 140) { bars.style.minWidth = rows.length * 3 + "px"; sc.setAttribute("data-wide", "1"); }
   rows.forEach(function (r, i) {
-    var clipped = r.n > max;
-    var bh = Math.max(1, Math.round((Math.min(r.n, max) / max) * (H - 34))), x = 10 + i * (bw + 2), y = H - 16 - bh;
-    var cls = "ccbar" + (!r.mature ? " young" : "") + (r.flags.some(function (f) { return f !== "이탈 경고"; }) ? " up" : "") + (r.flags.indexOf("이탈 경고") >= 0 ? " down" : "");
-    var g = mk("g", {}, svg);
-    var t = mk("title", {}, g);
-    t.textContent = r.no + "화 · 댓글 " + num(r.n) + "개" + (r.reg ? " · 공개 " + r.reg.slice(0, 10) : "") +
-      (!r.mature ? " · 공개 " + Math.max(0, Math.round(r.ca / 24)) + "일째에 센 수(아직 느는 중)" : "") +
-      (r.c7 != null ? " · 7일째 " + num(r.c7) + "개" : r.c3 != null ? " · 3일째 " + num(r.c3) + "개" : "") +
-      (r.ratio != null ? " · 직전 회차들(" + r.by + ") 가운데 값의 " + r.ratio.toFixed(2) + "배" : "") +
-      (r.batch ? " · 여러 화 동시 공개(비교 안 함)" : "") + (r.flags.length ? " · " + r.flags.join(", ") : "");
-    mk("rect", { x: x, y: y, width: bw, height: bh, rx: 1.5, "class": cls }, g);
-    var mark = (clipped ? "▲" : "") + r.flags.map(function (f) { return f[0]; }).join("");
-    if (mark) { var ft = mk("text", { x: x + bw / 2, y: y - 3, "text-anchor": "middle", "class": "ccflag" }, g); ft.textContent = mark; }
-    if (i % step === 0) { var lt = mk("text", { x: x + bw / 2, y: H - 4, "text-anchor": "middle", "class": "cclab" }, g); lt.textContent = r.no; }
+    var bt = el("button", "cbar" + (up(r) ? " k-up" : "") + (r.flags.indexOf("이탈 경고") >= 0 ? " k-down" : "") + (!r.mature ? " young" : "") + (r.n > cap ? " clip" : ""));
+    bt.type = "button";
+    bt.style.height = Math.max(2, Math.round(Math.min(r.n, cap) / cap * 100)) + "%";
+    bt.setAttribute("data-i", i);
+    bt.setAttribute("aria-label", r.no + "화 댓글 " + num(r.n) + "개");
+    bars.appendChild(bt);
   });
-  var w = el("div", "chartwrap"); w.appendChild(svg); card.appendChild(w);
-  card.appendChild(el("p", "hint", "막대 = 회차별 댓글 수(막대에 마우스를 올리면 자세히). ▲는 너무 커서 위를 자른 막대. 막대 위 글자: 대=대박(직전 회차들 가운데 값의 2배↑), 급=급증(1.5배↑), 이=이탈 경고(0.7배↓ 3화 연속). " +
-    "같은 시점끼리 비교해요: 공개 30일 지난 회차는 전체 수끼리, 최근 회차는 공개 7일째(없으면 3일째) 수끼리. 연한 막대는 아직 느는 중이고, 여러 화를 한꺼번에 공개한 회차는 비교하지 않아요. 1화는 새 독자가 계속 들어와 댓글이 많은 게 보통이에요." +
-    (left ? " 아직 앞 회차부터 세는 중이라 일부 회차가 빠져 있어요(매일 이어서 셉니다)." : "")));
+  sc.appendChild(bars); wrap.appendChild(sc);
+  var xa = el("div", "cxax");
+  xa.innerHTML = "<span>" + rows[0].no + "화</span><span class='cleg'><i class='k-up'></i>급증·대박 <i class='k-down'></i>이탈 경고 <i class='young'></i>아직 느는 중</span><span>" + rows[rows.length - 1].no + "화</span>";
+  wrap.appendChild(xa);
+  card.appendChild(wrap);
+  var hint = el("div", "chint");
+  var HINT = "막대를 누르면 그 회차를 볼 수 있어요";
+  hint.textContent = HINT;
+  card.appendChild(hint);
+  var box = el("div", "cepbox");
+  card.appendChild(box);
+  var panel = function (r) {
+    var chips = r.flags.map(function (f) { return "<span class='cchip " + (f === "이탈 경고" ? "k-down" : "k-up") + "'>" + f + "</span>"; });
+    if (r.ratio != null) chips.push("<span class='cchip'>직전 회차들(" + r.by + ") 가운데 값의 " + r.ratio.toFixed(2) + "배</span>");
+    if (r.back) chips.push("<span class='cchip c-ext'>휴재 후 복귀 (" + r.back + "일 만)</span>");
+    if (r.batch) chips.push("<span class='cchip c-ext'>여러 화 동시 공개 — 비교 안 함</span>");
+    if (r.n > cap) chips.push("<span class='cchip c-ext'>막대 위를 자름(너무 커서)</span>");
+    var rowsH = "<div class='crow'><span class='ck'>댓글</span><span class='cv'>" + num(r.n) + "개" + (r.mature ? "" : " <span class='cmuted2'>(공개 " + Math.max(0, Math.round(r.ca / 24)) + "일째에 센 수 · 아직 느는 중)</span>") +
+      " · 작품 전체의 " + (Math.round(1000 * r.n / (total || 1)) / 10) + "%</span></div>";
+    if (r.c3 != null || r.c7 != null) rowsH += "<div class='crow'><span class='ck'>같은 시점</span><span class='cv'>" + (r.c3 != null ? "공개 3일째 " + num(r.c3) + "개" : "") + (r.c3 != null && r.c7 != null ? " · " : "") + (r.c7 != null ? "7일째 " + num(r.c7) + "개" : "") + "</span></div>";
+    box.innerHTML = "<div class='cep'><div class='ceph'><b>" + r.no + "화</b><span>" + (r.reg ? "공개 " + r.reg.slice(0, 10) : "") + "</span></div>" +
+      (chips.length ? "<div class='cchips'>" + chips.join("") + "</div>" : "") + rowsH + "</div>";
+  };
+  // 처음엔 가장 크게 튄 회차(없으면 마지막 회차)를 보여 준다
+  var selI = rows.length - 1, best = 0;
+  rows.forEach(function (r, i) { if (up(r) && r.ratio > best) { best = r.ratio; selI = i; } });
+  var pick = function (i) {
+    selI = i;
+    Array.prototype.forEach.call(bars.children, function (b, k) { b.classList.toggle("sel", k === i); });
+    panel(rows[i]);
+  };
+  pick(selI);
+  bars.addEventListener("click", function (ev) { var t = ev.target.closest(".cbar"); if (t) pick(+t.getAttribute("data-i")); });
+  bars.addEventListener("mouseover", function (ev) {
+    var t = ev.target.closest(".cbar"); if (!t) return;
+    var r = rows[+t.getAttribute("data-i")];
+    hint.textContent = r.no + "화 · 댓글 " + num(r.n) + "개" + (r.reg ? " · " + r.reg.slice(0, 10) : "") + (r.flags.length ? " · " + r.flags.join(", ") : "");
+  });
+  bars.addEventListener("mouseleave", function () { hint.textContent = HINT; });
+  setTimeout(function () { if (sc.getAttribute("data-wide")) sc.scrollLeft = sc.scrollWidth; }, 0);
+  card.appendChild(el("p", "hint", "같은 시점끼리 비교해요: 공개 30일 지난 회차는 전체 수끼리, 최근 회차는 공개 7일째(없으면 3일째) 수끼리. 급증=직전 회차들 가운데 값의 1.5배↑, 대박=2배↑, 이탈 경고=0.7배↓가 3화 연속. " +
+    "연한 막대는 아직 느는 중이고, 1화는 새 독자가 계속 들어와 댓글이 많은 게 보통이에요." + (left ? " 아직 앞 회차부터 세는 중이라 일부 회차가 빠져 있어요(매일 이어서 셉니다)." : "")));
   return card;
 }
 

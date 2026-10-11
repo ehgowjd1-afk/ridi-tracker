@@ -66,7 +66,9 @@ export const THEME_SYSTEM = `당신은 웹툰·웹소설 회차 댓글에서 '�
   · 연재 아쉬움 — 휴재·시즌 완결·분량·기다림('규탄한다 보장하라', '이제 무슨 낙으로 살아', '벌써 끝?'), 절단 투정('왜 여기서 끊어요ㅠ')
   · 추리·예측·상상, 수위·씬 조르기, 원작 비교·원작 회차 질문, 다음 전개 기대
   · 애정 섞인 지적이나 진도 투정('재밌는데 팔이 짧아 보여요, 그것만 부탁', '진도 너무 느려어어', '이 에피소드를 4화나 끈다고? 너무하네')
-- dislike: 작품을 만든 방식(전개·개연성·캐붕·작화·연출·과한 수위)이나 작가를 분명하고 진지하게 비판하는 말, 진지한 하차 선언, 결제가 아깝다는 말만.
+- dislike: **서사·캐릭터(웹툰은 작화까지)**를 분명하고 진지하게 싫다고 하는 말만(사용자 결정 2026-10-11) —
+  · 서사: 전개 늘어짐·고구마·같은 패턴 반복·개연성·설정·결말·과한 수위 / 캐릭터: 성격·행동·매력이 싫다, 캐붕 / 작화(웹툰): 작화 붕괴·그림체 변화·인체 비율·연출 퀄리티
+  · 서사·캐릭터·작화가 아닌 불만(휴재·지각·분량·가격·결제·작가 인사·플랫폼)은 하차를 말해도 dislike가 아니라 talk다.
   · 웃음·ㅠ·애칭·과장이 섞인 투정, 정중한 부탁형 지적, 캐릭터의 행동에 화내는 말, 휴재·완결 아쉬움은 dislike가 아니라 talk다.
   · 상위 작품은 진짜 불호가 매우 드물다(재검토에서 612개 중 5개). 분명한 근거가 여러 개 없으면 dislike 묶음을 만들지 않는다. 0개여도 된다.
 
@@ -143,7 +145,7 @@ export const CLASSIFY_SYSTEM = `당신은 한국 웹소설·웹툰 플랫폼 리
   · 양보절('답답하긴 한데 귀여우니 봐준다')은 뒤가 본심
 - miss 연재 아쉬움: 휴재·시즌 완결·분량·기다림에 대한 비명 = 더 보고 싶다. 시위 구호('결사반대', '보장하라'), 상실 과장('이제 무슨 낙으로 살아'), 부정('완결이 뭐죠?'), 애원('가지 마요'), 분량('벌써 끝?'), '하 이걸 또 일주일을', 연재일 착각, 스포 구걸, 업데이트 요청. 휴재·지각·공지·분량 같은 연재 운영 이야기는 비꼬거나 화를 내도('공지도 없이 또 휴재?', '오늘도 지각이네요') miss다. 예) "휴재 결사반대!! 독자 생존권 보장하라"
 - nudge 애정 섞인 지적·진도 투정: 재밌다·좋다는 말이나 부탁과 함께 하는 작화·전개 지적('재밌게 보고 있어요, 근데 손이 좀 어색해요 그것만 부탁드려요'), 투정 말투의 진도·속도 불평('진도 너무 느려어어', '이 에피소드를 4화나 끈다고? 너무하네', '언제 사귀어요 진도 좀'). 작가에게 하는 말이어도 critic이 아니다.
-- critic 진짜 작품 불만: 작품을 만든 방식이나 작가를 향한 진지한 비판만.
+- critic 진짜 작품 불만: 서사·캐릭터·작화(웹툰)를 향한 진지한 비판만. 휴재·분량·가격 불만은 critic이 아니라 miss.
   · 전개('산으로 간다', '개연성 없다', '캐붕'), 구성(같은 패턴이 반복돼 지루하다·지친다는 진지한 비판. 화수를 세며 투정하는 말은 nudge)
   · 작화('그림체가 바뀐 것 같다', '비율이 어색하다', 좋아진다는 말 없이 '작화가 점점…ㅠ'), 연출('경기 장면 효과가 약하다')
   · 수위 과잉 진지한 비판('또 벗기냐 스토리는 언제'), 작품이 인물의 잘못을 미화한다는 비판(인물의 행동이 아니라 작품의 그리는 방식을 탓할 때)
@@ -237,6 +239,86 @@ export function buildNeedsParams(cfg, text) {
     messages: [{ role: "user", content: text + "\n\n위 자료로 참고용 니즈 맵을 JSON으로 쓰세요." }],
     output_config: { format: { type: "json_schema", schema: NEEDS_SCHEMA } }
   };
+  if (cfg.effort) req.output_config.effort = cfg.effort;
+  return req;
+}
+
+// ---------------- 회차 요약 (Haiku) — 네이버 트래커 cmt_ai.mjs 에서 옮김 ----------------
+// 웹툰 본문은 볼 수 없으니 회차마다 공감 많은 베스트 댓글로 '이 화 내용·독자 반응·분위기'를 짐작한다.
+export const MOODS = { hot: "열광", good: "좋음", mixed: "갈림", cold: "실망", flat: "밋밋" };
+export const EPSUM_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["eps"],
+  properties: {
+    eps: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false, required: ["no", "s", "r", "mood"],
+        properties: { no: { type: "integer" }, s: { type: "string" }, r: { type: "string" }, mood: { type: "string", enum: E(MOODS) } }
+      }
+    }
+  }
+};
+export const EPSUM_SYSTEM = `당신은 웹툰 편집자를 돕는 분석가입니다. 리디 웹툰 한 작품의 여러 회차에 대해, 회차마다 공감 많은 베스트 댓글을 받습니다. 웹툰 본문은 볼 수 없으니 댓글로 짐작합니다.
+
+회차마다 세 가지를 씁니다.
+- s (이 화 내용, 45자 안팎): 댓글로 짐작한 이 화의 사건·장면. 누가 무엇을 했는지 구체적으로('신루가 유리를 미인계로 유혹', '헌터가 지유 이름을 부르며 승리'). 댓글로 알 수 없으면 '댓글로는 내용 파악 어려움'.
+- r (독자 반응, 45자 안팎): 독자들이 이 화에서 무엇에 어떻게 반응했는지('키스 장면에 환호, 질투 전개 기대', '진도 느리다는 말이 늘어남').
+- mood: hot(환호·열광이 압도적) / good(대체로 좋음) / mixed(호불호 갈림·논쟁) / cold(실망·답답함이 많음) / flat(반응이 밋밋함·잡담 위주).
+
+규칙
+- 댓글 문장을 그대로 옮겨 적지 않는다(따옴표 인용 금지). 요약해서 쓴다.
+- 작가 인사·휴재·분량·결제 같은 연재 운영 얘기는 반응에서 뺀다. 인물에게 화내는 과몰입·휴재 아쉬움은 애정이지 불만이 아니다.
+- 입력에 나온 회차(no)마다 정확히 하나씩, 쉬운 한국어로.`;
+export function buildEpSumParams(cfg, text) {
+  const req = { model: cfg.model, max_tokens: 16000, system: [{ type: "text", text: EPSUM_SYSTEM, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: text + "\n\n위 회차마다 내용(s)·반응(r)·분위기(mood)를 JSON으로 쓰세요." }],
+    output_config: { format: { type: "json_schema", schema: EPSUM_SCHEMA } } };
+  if (cfg.effort) req.output_config.effort = cfg.effort;
+  return req;
+}
+
+// ---------------- 작품 분석 + 독자 분석 (Sonnet) — 네이버 트래커에서 옮김 ----------------
+// 목표: '어떤 서사·캐릭터·구조가 먹혔고 안 먹혔는지'. 프로그램이 센 숫자(묶음·불호·회차 반응)를 근거로만 쓴다.
+const AXIS5 = ["서사", "캐릭터", "구조·전개", "작화·연출", "설정·세계관"];
+const POINT = { type: "object", additionalProperties: false, required: ["axis", "point", "why", "eps"],
+  properties: { axis: { type: "string", enum: AXIS5 }, point: { type: "string" }, why: { type: "string" }, eps: { type: "array", items: { type: "integer" } } } };
+export const ANALYSIS_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["summary", "strengths", "weaknesses", "turns", "readers"],
+  properties: {
+    summary: { type: "string" },
+    strengths: { type: "array", items: POINT },
+    weaknesses: { type: "array", items: POINT },
+    turns: { type: "array", items: { type: "object", additionalProperties: false, required: ["no", "what", "effect"],
+      properties: { no: { type: "integer" }, what: { type: "string" }, effect: { type: "string" } } } },
+    readers: { type: "object", additionalProperties: false, required: ["who", "wants", "splits", "churn"],
+      properties: {
+        who: { type: "string" },
+        wants: { type: "array", items: { type: "object", additionalProperties: false, required: ["want", "why"], properties: { want: { type: "string" }, why: { type: "string" } } } },
+        splits: { type: "array", items: { type: "object", additionalProperties: false, required: ["topic", "sides"], properties: { topic: { type: "string" }, sides: { type: "string" } } } },
+        churn: { type: "string" }
+      } }
+  }
+};
+export const ANALYSIS_SYSTEM = `당신은 웹툰 기획 PD를 돕는 분석가입니다. 리디 웹툰 한 작품의 회차 댓글 분석 결과(프로그램이 센 숫자)를 받아 '작품 분석'과 '독자 분석'을 씁니다. 목표는 이 작품에서 어떤 서사·캐릭터·구조가 독자에게 먹혔고 어떤 것이 안 먹혔는지 판단하는 것입니다.
+
+입력: 회차별 댓글 수와 급증·급감, 회차마다 댓글로 짐작한 내용·반응·분위기, 반복 반응 묶음(좋다는 말/많이 하는 말/불호)과 개수·좋아요·몰린 회차, 속뜻 분포.
+
+쓸 것
+- summary: 이 작품이 독자에게 어떤 작품인지 한두 문장 총평.
+- strengths 3~6개: 먹힌 요소. axis(서사/캐릭터/구조·전개/작화·연출/설정·세계관), point(무엇이), why(근거 숫자: 묶음 개수·좋아요, 급증 회차 배수 등), eps(근거 회차 번호 no).
+- weaknesses 0~4개: 안 먹힌 요소. 불호 묶음(서사·캐릭터·작화만)과 급감 회차를 근거로. 근거가 약하면 비워 둔다.
+- turns 2~6개: 반응이 크게 바뀐 회차(급증·급감·분위기 전환). no, what(그 화에 무슨 일), effect(반응이 어떻게 바뀌었나, 숫자 포함).
+- readers: who(독자층 성향 — 원작 독자 비중, 커플링·캐릭터 팬덤, 과몰입 정도 등 댓글에서 보이는 것), wants 3~5개(독자가 바라는 것과 근거), splits 0~3개(호불호가 갈리는 지점: topic, sides), churn(이탈 신호 요약 — 급감 회차·하차 언급이 없으면 '뚜렷한 이탈 신호 없음').
+
+규칙
+- 숫자로 뒷받침되는 것만 쓴다. 숫자를 지어내거나 부풀리지 않는다.
+- 캐릭터에게 화내기·악역 미워하기는 몰입(좋은 신호)이다. 휴재·분량·작가 인사·결제는 분석에서 뺐다.
+- 댓글 문장을 옮겨 적지 않는다(따옴표 인용 금지).
+- 쉬운 한국어로, 각 문장은 짧게.`;
+export function buildAnalysisParams(cfg, text) {
+  const req = { model: cfg.model, max_tokens: 32000, system: ANALYSIS_SYSTEM,
+    messages: [{ role: "user", content: text + "\n\n위 자료로 작품 분석과 독자 분석을 JSON으로 쓰세요." }],
+    output_config: { format: { type: "json_schema", schema: ANALYSIS_SCHEMA } } };
   if (cfg.effort) req.output_config.effort = cfg.effort;
   return req;
 }

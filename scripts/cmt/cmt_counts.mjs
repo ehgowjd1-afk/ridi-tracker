@@ -1,4 +1,4 @@
-/* 회차별 댓글 수 — 트래커 순위에 나온 모든 웹툰 (AI 안 씀, 무료)
+/* 회차별 댓글 수 — 트래커 순위에 나온 모든 웹툰 + 웹소설 5장르 상위 50 (AI 안 씀, 무료)
  *
  * 작품마다 docs/data/cmt_counts/<id>.json 에 회차별 댓글 수를 모은다. 숫자만 저장(댓글 내용·아이디 없음).
  *   eps: [[회차 id, 화 번호(없으면 null), 공개 시각, 지금까지 댓글 수, 센 시각, [[공개 후 시간, 댓글 수], ...] | null]]
@@ -39,7 +39,8 @@ const log = (...a) => console.log(...a);
 const readJSON = (p, d) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch (e) { return d; } };
 const iso = (t) => new Date(t).toISOString();
 
-// ---- 대상: 순위에 나온 웹툰 전부, 순위 높은 순 (웹툰·BL웹툰 본 분류를 세부 장르보다 먼저)
+// ---- 대상: 순위에 나온 웹툰 전부(본 분류 → 세부 장르 순) + 웹소설(전체·로맨스·로판·판타지·BL) 일간·주간·월간 상위 50(웹툰 다음)
+//      웹소설은 회차가 많아(전부면 반년 걸림) 상위 50만 — 사용자 요청 '회차별 댓글 수 변화는 다'(2026-10-11)
 function universe() {
   const latest = readJSON("docs/data/latest.json", { rankings: {}, books: {} });
   const best = new Map();
@@ -48,6 +49,14 @@ function universe() {
     const main = !r.is_sub;
     (r.ids || []).forEach((id, i) => {
       const score = (main ? 0 : 1000) + i;   // 본 분류 순위가 먼저
+      if (!best.has(id) || score < best.get(id)) best.set(id, score);
+    });
+  }
+  for (const [key, r] of Object.entries(latest.rankings || {})) {
+    const [code, period] = key.split("-");
+    if (!["999001", "1650", "6050", "1750", "4150"].includes(code) || !/^(DAILY|WEEKLY|MONTHLY)$/.test(period || "")) continue;
+    (r.ids || []).slice(0, 50).forEach((id, i) => {
+      const score = 2000 + i;                  // 웹툰을 다 센 다음
       if (!best.has(id) || score < best.get(id)) best.set(id, score);
     });
   }
@@ -130,7 +139,7 @@ async function guard(fn, id) {
 try {
   const { ids: all, title, epCount } = universe();
   const ids = args.only || all;
-  log(`대상 웹툰 ${ids.length}개 (순위에 나온 웹툰 전부) · 이미 다 센 작품 ${Object.values(index.works).filter((x) => x.done).length}개 · 시간 ${args.minutes}분`);
+  log(`대상 ${ids.length}작 (순위에 나온 웹툰 전부 + 웹소설 상위 50) · 이미 다 센 작품 ${Object.values(index.works).filter((x) => x.done).length}개 · 시간 ${args.minutes}분`);
   const now = Date.now();
 
   // ① 연재 중인 작품: 새 회차 확인 + 최근 회차 댓글 수
@@ -199,7 +208,7 @@ try {
   index.updated_at = iso(Date.now());
   writeFileSync(INDEX, JSON.stringify(index));
   const done = Object.values(index.works).filter((x) => x.done).length;
-  const lines = [`## 회차별 댓글 수 (모든 웹툰)`, `- 리디 요청 ${R.requests}번, ${Math.round((Date.now() - T0) / 60e3)}분`,
+  const lines = [`## 회차별 댓글 수 (모든 웹툰 + 웹소설 상위 50)`, `- 리디 요청 ${R.requests}번, ${Math.round((Date.now() - T0) / 60e3)}분`,
     `- 회차 목록 ${stat.listed}번, 댓글 수 ${stat.counted}번 (새 회차 ${stat.newEps}개, 1·3·7·30일째 기록 ${stat.snaps}개)`,
     `- 새로 다 센 작품 ${stat.backfilled}개, 이어서 셀 작품 ${stat.partial}개, 다시 센 작품 ${stat.refreshed}개 · 다 센 작품 합계 ${done}개`,
     ...(stat.errors ? [`- 오류 ${stat.errors}개`] : []), ...(blocked ? ["- 리디가 요청을 막아 일찍 멈춤"] : [])];
