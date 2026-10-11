@@ -2827,9 +2827,44 @@ function mergeAi(reviewData, ai) {
 
 function reviewAgg(data) {
   if (!data) return null;
-  if (data.analysis) return { agg: data.analysis, full: true };
-  if (data.reviews && data.reviews.length) return { agg: RABSA.analyze(data.reviews, { names: data.names || [] }), full: false };
+  if (data.analysis) return { agg: endingAffection(data.analysis), full: true };
+  if (data.reviews && data.reviews.length) return { agg: endingAffection(RABSA.analyze(data.reviews, { names: data.names || [] })), full: false };
   return null;
+}
+
+// '분량·완결·외전'에서 '연재 중이라 아쉽다', '연재작이라 흠', '분량이 짧다', '완결이라 슬프다'는 더 보고 싶다는 애정이다(사용자 원칙 2026-10-11).
+// AI·규칙 엔진이 이것을 아쉬움(👎)으로 센 것을 '더 보고 싶다'(👍)로 옮기고, 결말 자체를 탓하는 말만 아쉬움으로 남긴다.
+//   phr/examples 모양: {p|n|m: [[말, 건수, 발췌, 공감, 날짜]]} / {p|n: [[발췌, 공감, 날짜]]}, aspectsD: [호평, 아쉬움, 무난, 강한 호평, 강한 불만]
+var ENDING_KEEP = /결말|마무리|엔딩|허무|급전개|급하게\s*끝|용두사미|흐지부지/;
+function endingAffection(agg) {
+  if (!agg) return agg;
+  var ph = agg.phr && agg.phr.ending, ex = agg.examples && agg.examples.ending, sD = agg.aspectsD && agg.aspectsD.ending, sA = agg.aspects && agg.aspects.ending;
+  if (!ph && !ex && !sD && !sA) return agg;
+  var keep = function (t) { return ENDING_KEEP.test(String(t || "")); };
+  var a = Object.assign({}, agg), moved = 0, nTotal = 0;
+  if (ph && ph.n && ph.n.length) {
+    var stay = [], go = [];
+    ph.n.forEach(function (e) { nTotal += e[1] || 0; (keep(e[0]) || keep(e[2]) ? stay : go).push(e); });
+    moved = go.reduce(function (t, e) { return t + (e[1] || 0); }, 0);
+    a.phr = Object.assign({}, agg.phr);
+    a.phr.ending = Object.assign({}, ph, { n: stay, p: (ph.p || []).concat(go.map(function (e) { var c = e.slice(); c[0] = "더 보고 싶다"; return c; })) });
+  }
+  if (ex && ex.n && ex.n.length) {
+    var es = ex.n.filter(function (e) { return keep(e[0]); }), eg = ex.n.filter(function (e) { return !keep(e[0]); });
+    if (!nTotal) { nTotal = ex.n.length; moved = eg.length; }
+    a.examples = Object.assign({}, agg.examples);
+    a.examples.ending = Object.assign({}, ex, { n: es, p: (ex.p || []).concat(eg) });
+  }
+  var shift = function (s) {
+    if (!s || !s[1]) return s;
+    var c = s.slice(), mv = nTotal ? Math.min(c[1], Math.round(c[1] * moved / nTotal)) : 0;
+    c[0] += mv; c[1] -= mv;
+    if (c.length > 4 && !c[1]) { c[3] = (c[3] || 0) + (c[4] || 0); c[4] = 0; }
+    return c;
+  };
+  if (sD) { a.aspectsD = Object.assign({}, agg.aspectsD); a.aspectsD.ending = shift(sD); }
+  if (sA) { a.aspects = Object.assign({}, agg.aspects); a.aspects.ending = shift(sA); }
+  return a;
 }
 
 // ── 공통 의견 ──
