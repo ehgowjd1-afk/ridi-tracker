@@ -3052,14 +3052,19 @@ function cmtCountCard(cc) {
   rows.forEach(function (r, i) {
     r.batch = i > 0 && r.reg && rows[i - 1].reg && Math.abs(Date.parse(r.reg) - Date.parse(rows[i - 1].reg)) <= HOUR;
     if (i > 0 && r.reg && rows[i - 1].reg && !r.batch) { r.gap = Date.parse(r.reg) - Date.parse(rows[i - 1].reg); gaps.push(r.gap); }
-    r.ratio = null; r.by = "";
-    if (r.batch) return;
+    r.ratio = null; r.by = ""; r.why = "";
+    if (r.batch) { r.why = "앞 회차와 한꺼번에 공개돼 비교하지 않았어요(1화 쏠림 때문)."; return; }
     var key = r.mature ? "n" : r.c7 != null ? "c7" : r.c3 != null ? "c3" : null;
-    if (!key) return;
-    var prev = rows.slice(0, i).filter(function (x) { return !x.batch && (key === "n" ? x.mature : x[key] != null); }).slice(-5).map(function (x) { return x[key]; });
-    if (prev.length < 2) return;
+    if (!key) { r.why = "공개 30일이 안 됐고 같은 시점(3·7일째) 기록도 아직 없어 비교하지 않았어요."; return; }
+    var prevRows = rows.slice(0, i).filter(function (x) { return !x.batch && (key === "n" ? x.mature : x[key] != null); }).slice(-5);
+    var prev = prevRows.map(function (x) { return x[key]; });
+    if (prev.length < 2) { r.why = "같은 잣대로 비교할 앞 회차가 2개 미만이라 비교하지 않았어요."; return; }
     var base = median(prev);
-    if (base > 0) { r.ratio = r[key] / base; r.by = key === "n" ? "전체 수" : key === "c7" ? "공개 7일째" : "공개 3일째"; }
+    if (base > 0) {
+      r.ratio = r[key] / base; r.by = key === "n" ? "전체 수" : key === "c7" ? "공개 7일째" : "공개 3일째";
+      r.base = base; r.val = r[key];
+      r.from = prevRows[0].no; r.to = prevRows[prevRows.length - 1].no; r.cnt = prevRows.length;
+    }
   });
   var gapMid = gaps.length ? median(gaps) : null;
   rows.forEach(function (r, i) {
@@ -3114,6 +3119,15 @@ function cmtCountCard(cc) {
     if (r.n > cap) chips.push("<span class='cchip c-ext'>막대 위를 자름(너무 커서)</span>");
     var rowsH = "<div class='crow'><span class='ck'>댓글</span><span class='cv'>" + num(r.n) + "개" + (r.mature ? "" : " <span class='cmuted2'>(공개 " + Math.max(0, Math.round(r.ca / 24)) + "일째에 센 수 · 아직 느는 중)</span>") +
       " · 작품 전체의 " + (Math.round(1000 * r.n / (total || 1)) / 10) + "%</span></div>";
+    if (r.ratio != null) {
+      var verdict = r.flags.indexOf("대박") >= 0 ? "대박(2배↑)" : r.flags.indexOf("급증") >= 0 ? "급증(1.5배↑)" : r.ratio <= 0.7 ? "낮음(0.7배↓)" : "보통(0.7~1.5배)";
+      var why = "직전 " + r.cnt + "화(" + r.from + "~" + r.to + "화, " + r.by + ") 가운데 값 " + num(Math.round(r.base)) + "개 → 이 화 " + num(r.val) + "개 = " + r.ratio.toFixed(2) + "배 → " + verdict;
+      if (r.flags.indexOf("이탈 경고") >= 0) {
+        var i3 = rows.indexOf(r);
+        why += " · 3화 연속 0.7배↓라 이탈 경고(" + [i3 - 2, i3 - 1, i3].map(function (k) { return rows[k].no + "화 " + rows[k].ratio.toFixed(2) + "배"; }).join(", ") + ")";
+      }
+      rowsH += "<div class='crow'><span class='ck'>판정 이유</span><span class='cv'>" + why + "</span></div>";
+    } else if (r.why) rowsH += "<div class='crow'><span class='ck'>판정 이유</span><span class='cv'>" + r.why + "</span></div>";
     if (r.c3 != null || r.c7 != null) rowsH += "<div class='crow'><span class='ck'>같은 시점</span><span class='cv'>" + (r.c3 != null ? "공개 3일째 " + num(r.c3) + "개" : "") + (r.c3 != null && r.c7 != null ? " · " : "") + (r.c7 != null ? "7일째 " + num(r.c7) + "개" : "") + "</span></div>";
     box.innerHTML = "<div class='cep'><div class='ceph'><b>" + r.no + "화</b><span>" + (r.reg ? "공개 " + r.reg.slice(0, 10) : "") + "</span></div>" +
       (chips.length ? "<div class='cchips'>" + chips.join("") + "</div>" : "") + rowsH + "</div>";
