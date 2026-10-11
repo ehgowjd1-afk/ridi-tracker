@@ -2827,8 +2827,11 @@ function mergeAi(reviewData, ai) {
 
 function reviewAgg(data) {
   if (!data) return null;
-  if (data.analysis) return { agg: endingAffection(data.analysis), full: true };
-  if (data.reviews && data.reviews.length) return { agg: endingAffection(RABSA.analyze(data.reviews, { names: data.names || [] })), full: false };
+  // 규칙 엔진 9판부터는 엔진이 앞뒤 맥락을 보고 직접 '더 보고 싶다'로 나누므로 화면 보정은 예전 결과·AI 결과에만 쓴다
+  //   (AI가 섞인 9판 결과는 AI 칸만 보정하고, 규칙 엔진이 이미 나눈 '전체 리뷰' 칸(aspects)은 다시 옮기지 않는다)
+  var v9 = +(data.engine || 0) >= 9;
+  if (data.analysis) return { agg: (data.analysis.ai || !v9) ? endingAffection(data.analysis, v9) : data.analysis, full: true };
+  if (data.reviews && data.reviews.length) return { agg: RABSA.analyze(data.reviews, { names: data.names || [] }), full: false };
   return null;
 }
 
@@ -2836,7 +2839,7 @@ function reviewAgg(data) {
 // AI·규칙 엔진이 이것을 아쉬움(👎)으로 센 것을 '더 보고 싶다'(👍)로 옮기고, 결말 자체를 탓하는 말만 아쉬움으로 남긴다.
 //   phr/examples 모양: {p|n|m: [[말, 건수, 발췌, 공감, 날짜]]} / {p|n: [[발췌, 공감, 날짜]]}, aspectsD: [호평, 아쉬움, 무난, 강한 호평, 강한 불만]
 var ENDING_KEEP = /결말|마무리|엔딩|허무|급전개|급하게\s*끝|용두사미|흐지부지/;
-function endingAffection(agg) {
+function endingAffection(agg, keepAspects) {
   if (!agg) return agg;
   var ph = agg.phr && agg.phr.ending, ex = agg.examples && agg.examples.ending, sD = agg.aspectsD && agg.aspectsD.ending, sA = agg.aspects && agg.aspects.ending;
   if (!ph && !ex && !sD && !sA) return agg;
@@ -2863,7 +2866,7 @@ function endingAffection(agg) {
     return c;
   };
   if (sD) { a.aspectsD = Object.assign({}, agg.aspectsD); a.aspectsD.ending = shift(sD); }
-  if (sA) { a.aspects = Object.assign({}, agg.aspects); a.aspects.ending = shift(sA); }
+  if (sA && !keepAspects) { a.aspects = Object.assign({}, agg.aspects); a.aspects.ending = shift(sA); }
   return a;
 }
 
@@ -2912,7 +2915,8 @@ var OPINION_PRED = {
   "지쳐": "지친다", "역겹": "역겹다", "구린": "구리다", "구려": "구리다", "구림": "구리다", "망했": "망했다", "망함": "망했다",
   "노꼴": "안 꼴린다", "코웃음": "코웃음만 나온다", "헛웃음": "헛웃음이 나온다", "짜증": "짜증 난다", "피곤": "피곤하다",
   "노잼": "재미없다", "꾸역꾸역": "꾸역꾸역 읽게 된다", "흐린눈": "흐린 눈 하게 된다", "작붕": "작화가 무너진다", "속터지": "속 터진다",
-  "조건부 추천": "조건부로 추천한다", "미친": "미쳤다(좋은 뜻)", "쩐다": "쩐다"
+  "조건부 추천": "조건부로 추천한다", "미친": "미쳤다(좋은 뜻)", "쩐다": "쩐다",
+  "조건부 비추": "조건부로 비추천한다", "감겨": "감긴다(빠져든다)"
 };
 // 부정어가 '없이/않'으로 뒤집힌 칭찬: '지루 없음' → '지루하지 않다'
 var OPINION_NOT = {
@@ -2931,6 +2935,7 @@ function hasBatchim(word) {
 function opinionText(key) {
   var i = key.indexOf("·");
   var kw = i < 0 ? "" : key.slice(0, i), w = i < 0 ? key : key.slice(i + 1);
+  if (w === "더 보고 싶다") return kw === "외전" ? "외전을 더 보고 싶다" : w;   // '짧·더 보고 싶다'처럼 요소 단어가 붙어도 한 문장으로
   var m = /^(.*?) (없음|아님)$/.exec(w), pred;
   if (m && m[2] === "없음") pred = OPINION_NOT[m[1]] || (m[1] + " 없음");
   else if (m) pred = OPINION_PRED[m[1]] ? OPINION_PRED[m[1]].replace(/다$/, "지 않다") : m[1] + " 아님";
