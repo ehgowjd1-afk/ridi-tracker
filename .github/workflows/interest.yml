@@ -1,0 +1,75 @@
+name: BL 웹툰 관심 수
+
+# 하루 한 번: BL 웹툰 카테고리 전체 목록(완결·회차·작가) + 단편선 작품의 '관심' 수를 모읍니다.
+#   docs/data/bl_webtoon/list.json  카테고리 목록 (순위 밖 최근 완결작 찾기용)
+#   docs/data/interest.json         작품별 날짜별 관심 수
+# 범위는 scripts/interest.py 의 --scope (short=단편선만, bl=BL 웹툰 순위권 전부).
+# 상세페이지를 열기 때문에 매일 수집(08:15)과 같은 concurrency 그룹으로 묶어 겹치지 않게 합니다.
+on:
+  schedule:
+    - cron: "40 20 * * *"     # 한국시간 05:40
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "대상 (short=단편선만, bl=단편선+BL 웹툰 순위권)"
+        type: choice
+        options: [short, bl]
+        default: short
+      max_details:
+        description: "이번 회차에 열 상세페이지 수"
+        type: string
+        default: "400"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+env:
+  SCOPE: short
+
+jobs:
+  interest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 관심 수 수집
+        timeout-minutes: 45
+        env:
+          SCOPE_IN: ${{ inputs.scope }}
+          MAXD: ${{ inputs.max_details || '400' }}
+        run: |
+          SCOPE="${SCOPE_IN:-$SCOPE}"
+          echo "범위: $SCOPE / 상한: $MAXD"
+          python scripts/interest.py --scope "$SCOPE" --max-details "$MAXD"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/bl_webtoon docs/data/interest.json
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          git commit -m "BL 웹툰 관심 수: $(TZ=Asia/Seoul date +%F)"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git fetch origin main
+            git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || exit 1
+          done
+          echo "여러 번 시도했지만 저장하지 못했습니다."
+          exit 1
