@@ -228,7 +228,7 @@ function applyJob(job, byN) {
     const res = byN[i];
     if (!r) return;
     if (!res) { report.missing++; return; }
-    RABSA.addAiReview(agg, r, res, opts);
+    RABSA.addAiReview(agg, r, res, Object.assign({ keepFull: true }, opts));   // 예시에 리뷰 원문 전체도 (화면에서 펼쳐 보기)
     n++;
   });
   writeJSON(file, {

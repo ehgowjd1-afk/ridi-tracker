@@ -3220,6 +3220,21 @@ function commonOpinions(agg) {
   return { pos: top(pos, 6), mid: top(mid, 3), neg: top(neg, 4) };
 }
 
+// 발췌 옆에 '전체' 단추 — 누르면 리뷰 원문 전체(AI 분석 파일에만 들어 있음)를 아래에 펼친다. 발췌 행 클릭이 상위 토글로 번지지 않게 막는다.
+function appendFull(host, full) {
+  if (!full) return;
+  var btn = el("button", "exmore", "전체");
+  var fd = el("div", "exfull hidden", "“" + full + "”");
+  btn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    fd.classList.toggle("hidden");
+    btn.textContent = fd.classList.contains("hidden") ? "전체" : "접기";
+  });
+  fd.addEventListener("click", function (ev) { ev.stopPropagation(); });
+  host.appendChild(btn);
+  host.appendChild(fd);
+}
+
 function opinionCard(data) {
   var a = reviewAgg(data);
   if (!a) return null;
@@ -3259,7 +3274,11 @@ function opinionCard(data) {
     otop.appendChild(el("b", "", "🔥 캐릭터에게 화내거나 놀리며 몰입한 반응"));
     otop.appendChild(el("span", "opc", num(ov) + "건"));
     orow.appendChild(otop);
-    (agg.overEx || []).slice(0, 2).forEach(function (e) { orow.appendChild(el("div", "ope", "“" + e[0] + "”")); });
+    (agg.overEx || []).slice(0, 2).forEach(function (e) {
+      var od = el("div", "ope", "“" + e[0] + "”");
+      appendFull(od, e[3]);
+      orow.appendChild(od);
+    });
     list.appendChild(orow);
   }
   card.appendChild(list);
@@ -3418,6 +3437,7 @@ function aspectCard(data) {
           var e = r[1], d = el("div", r[0] > 0 ? "exp" : r[0] < 0 ? "exn" : "exm");
           d.appendChild(el("b", "", (r[0] > 0 ? "👍 " : r[0] < 0 ? "👎 " : "😐 ") + "공감 " + num(e[1])));
           d.appendChild(document.createTextNode(" “" + e[0] + "”"));
+          appendFull(d, e[3]);
           box.appendChild(d);
         });
       }

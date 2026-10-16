@@ -126,11 +126,15 @@ export function verifySummary(sum, sample) {
   const fix = (arr) => (arr || []).map((it) => {
     stat.items++;
     const refs = [...new Set((it.refs || []).filter((n) => Number.isInteger(n) && n >= 1 && n <= sample.length))];
-    const quotes = [];
+    const quotes = [], qfull = [];
     for (const q of it.quotes || []) {
       stat.quotes++;
       const sq = squash(q);
-      if (sq.length >= 4 && texts.some((t) => t.includes(sq))) { quotes.push(clip(norm(q), 60)); stat.quotesOk++; }
+      const at = sq.length >= 4 ? texts.findIndex((t) => t.includes(sq)) : -1;
+      if (at >= 0) {
+        quotes.push(clip(norm(q), 60)); stat.quotesOk++;
+        qfull.push(clip(norm(sample[at].content), 600));   // 인용이 들어 있는 리뷰 원문 전체 (화면에서 펼쳐 보기)
+      }
     }
     if (!quotes.length) return null;   // 실제 리뷰에서 확인된 인용이 하나도 없으면 버림 (지어낸 항목 방지)
     stat.kept++;
@@ -138,7 +142,7 @@ export function verifySummary(sum, sample) {
     const likes = refs.reduce((s, n) => s + (sample[n - 1].likes || 0), 0);
     // 건수는 표본 안의 수여야 한다: 표본보다 크거나 숫자가 아니면 근거 리뷰 수로, 근거 수보다 작으면 근거 수로
     const n = Number.isInteger(it.n) && it.n <= sample.length ? Math.max(it.n, refs.length) : refs.length;
-    return Object.assign({}, it, { n, refs: refs.length, quotes, likes });
+    return Object.assign({}, it, { n, refs: refs.length, quotes, qfull, likes });
   }).filter(Boolean);
   return {
     summary: { headline: norm(sum.headline), tropes: fix(sum.tropes), likes: fix(sum.likes), dislikes: fix(sum.dislikes),

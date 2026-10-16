@@ -1267,12 +1267,17 @@
   // 공감 많은 문장: 공감 많은 것 > 최신 것. 요소·극성별 3개까지.
   function better(a, b) { return (a[1] - b[1]) || (a[2] > b[2] ? 1 : a[2] < b[2] ? -1 : 0); }
   // side: "p" 호평 / "n" 아쉬움 / "m" 무난(그냥 그렇다)
-  function keepExample(agg, key, side, c, likes, date) {
+  // 예시 = [발췌, 공감, 날짜] (+ 네 번째에 리뷰 원문 전체 — AI 분석 파일만. 전 작품 파일에 넣으면 너무 커진다)
+  function fullOf(t) {
+    var s = (t || "").replace(/\s+/g, " ").trim(), a = Array.from(s);
+    return a.length > 600 ? a.slice(0, 599).join("").replace(/\s+$/, "") + "…" : s;
+  }
+  function keepExample(agg, key, side, c, likes, date, full) {
     if (!c) return;
     var slot = agg.examples[key] || (agg.examples[key] = { p: [], n: [] });
     var arr = slot[side] || (slot[side] = []);
     for (var i = 0; i < arr.length; i++) if (arr[i][0] === c) return;
-    arr.push([c, likes || 0, date || ""]);
+    arr.push(full ? [c, likes || 0, date || "", full] : [c, likes || 0, date || ""]);
     arr.sort(function (x, y) { return better(y, x); });
     if (arr.length > 3) arr.length = 3;
   }
@@ -1398,7 +1403,7 @@
       agg.overEx = agg.overEx || [];
       var oc = contextOf(text, over[0]);
       if (oc && !agg.overEx.some(function (e) { return e[0] === oc; })) {
-        agg.overEx.push([oc, likes, at]);
+        agg.overEx.push(opts && opts.keepFull ? [oc, likes, at, fullOf(text)] : [oc, likes, at]);
         agg.overEx.sort(function (x, y) { return better(y, x); });
         if (agg.overEx.length > 2) agg.overEx.length = 2;
       }
@@ -1411,7 +1416,7 @@
       seen[key] = 1; used = true;
       bumpAspect(agg.aspectsD, it.e, side, it.lv);
       var q = (it.q || "").trim(), ex = contextOf(text, q || it.k || "");
-      keepExample(agg, it.e, side, ex, likes, at);
+      keepExample(agg, it.e, side, ex, likes, at, opts && opts.keepFull ? fullOf(text) : undefined);
       var kw = "", w = "";
       var pol = side === "n" ? -1 : 1;
       var pick = function (src) {

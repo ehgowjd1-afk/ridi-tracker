@@ -381,6 +381,10 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
   border-radius: 999px; font-size: .85rem; z-index: 90;
 }
 .aspex .exh { font-size: .7rem; font-weight: 600; color: var(--dim); margin: 4px 0 1px; }
+/* 발췌 옆 '전체' 단추와 펼친 원문 */
+.exmore { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--accent); font-size: .68rem; cursor: pointer; vertical-align: 1px; }
+.exfull { white-space: normal; line-height: 1.5; margin: 3px 0 6px; padding: 6px 8px; border-left: 2px solid var(--line); color: var(--fg, inherit); font-size: .76rem; }
+.oprow .ope .exfull, .oprow .ope .exmore { white-space: normal; }
 .aspex .exh:first-child { margin-top: 0; }
 .aspex b { font-weight: 600; }
 .aspbasis { margin: 2px 0 8px; }
