@@ -3,6 +3,7 @@
  * 받는 것: 리뷰 번호(ratingId)·별점·공감 수·작성 시각·내용. 작성자 아이디는 요청하지 않는다.
  * 사이트 부담: 요청 사이 최소 2.5초, 429(너무 많음)가 3번 나오면 멈춘다.
  */
+import { pyFetch } from "../pyfetch.cjs";
 import { RidiBlocked } from "./ridi_comments.mjs";
 
 const GQL_URL = "https://api.ridibooks.com/graphql";
@@ -27,7 +28,7 @@ async function page(bookId, pageNo) {
     if (wait > 0) await sleep(wait);
     lastAt = Date.now(); reviewRequests++;
     let res;
-    try { res = await fetch(GQL_URL, { method: "POST", headers: HEADERS, body, signal: AbortSignal.timeout(60000) }); }
+    try { res = await pyFetch(GQL_URL, { method: "POST", headers: HEADERS, body, signal: AbortSignal.timeout(60000) }); }
     catch (e) { if (attempt < 3) { await sleep(5000 * attempt); continue; } throw e; }
     if (res.status === 429) { if (++n429 >= 3) throw new RidiBlocked("리디가 요청을 막았습니다 (429)"); await sleep(30000); continue; }
     if (res.status >= 500 && attempt < 3) { await sleep(5000 * attempt); continue; }

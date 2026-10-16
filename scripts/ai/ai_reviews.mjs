@@ -16,6 +16,7 @@
  *
  *   node scripts/ai/ai_reviews.mjs --budget-min 90 --limit-usd 30 [--top 30] [--scope genre|sub] [--max-reviews 20000] [--only id,id] [--dry]
  */
+import { pyFetch } from "../pyfetch.cjs";
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
@@ -91,7 +92,7 @@ async function reviewPage(bookId, page, limit) {
     if (wait > 0) await sleep(wait);
     lastReq = Date.now(); requests++;
     let res;
-    try { res = await fetch(GQL_URL, { method: "POST", headers: HEADERS, body }); }
+    try { res = await pyFetch(GQL_URL, { method: "POST", headers: HEADERS, body }); }
     catch (e) { if (attempt < 3) { await sleep(5000 * attempt); continue; } throw e; }
     if (res.status === 429) {
       if (++n429 >= 3) { ridiBlocked = true; throw new RidiBlocked("리디 요청 과다(429)"); }

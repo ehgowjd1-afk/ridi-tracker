@@ -1,3 +1,4 @@
+import { pyFetch } from "../pyfetch.cjs";
 /* 리디 회차 댓글 수집 (로그인 없이)
  *
  * 회차 목록: 작품 상세페이지 HTML 안의 seriesBookListJson (성인 작품도 들어 있음)
@@ -25,7 +26,7 @@ async function get(url, asText) {
     lastAt = Date.now();
     requests++;
     let r;
-    try { r = await fetch(url, { headers: H, signal: AbortSignal.timeout(30000) }); }
+    try { r = await pyFetch(url, { headers: H, signal: AbortSignal.timeout(30000) }); }
     catch (e) { if (tries < 2) { await sleep(5000); continue; } throw e; }
     if (r.status === 429 || r.status === 503) {
       if (++n429 >= 3) throw new RidiBlocked("리디가 요청을 막았습니다 (" + r.status + ")");

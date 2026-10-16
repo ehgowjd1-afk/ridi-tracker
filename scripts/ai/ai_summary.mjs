@@ -9,6 +9,7 @@
  *
  *   node scripts/ai/ai_summary.mjs --budget-min 60 --limit-usd 30 [--top 30] [--scope genre|sub] [--max-works 300] [--only id,id]
  */
+import { pyFetch } from "../pyfetch.cjs";
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
@@ -79,7 +80,7 @@ async function reviewPage(bookId, page) {
     if (wait > 0) await sleep(wait);
     lastReq = Date.now(); requests++;
     let res;
-    try { res = await fetch(GQL_URL, { method: "POST", headers: HEADERS, body }); }
+    try { res = await pyFetch(GQL_URL, { method: "POST", headers: HEADERS, body }); }
     catch (e) { if (attempt < 3) { await sleep(5000 * attempt); continue; } throw e; }
     if (res.status === 429) { if (++n429 >= 3) { ridiBlocked = true; throw new RidiBlocked("리디 요청 과다(429)"); } await sleep(30000); continue; }
     if (res.status >= 500 && attempt < 3) { await sleep(5000 * attempt); continue; }

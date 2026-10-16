@@ -24,6 +24,7 @@
  *   node scripts/reviews_full.js --rc-only --rc-cats 1651,4250            (별점 수집 시험)
  */
 "use strict";
+const { pyFetch } = require("./pyfetch.cjs");   // 리디는 파이썬으로 요청(클라우드플레어가 Node fetch를 막음, 2026-10-14~)
 const fs = require("fs");
 const path = require("path");
 const RABSA = require("../docs/rabsa.js");
@@ -101,7 +102,7 @@ async function http(url, init) {
     reqCount++;
     let res;
     try {
-      res = await fetch(url, Object.assign({ signal: AbortSignal.timeout(45000) }, init));
+      res = await pyFetch(url, Object.assign({ signal: AbortSignal.timeout(45000) }, init));
     } catch (e) {
       if (attempt === 3) throw e;
       await sleep(5000 * attempt);
