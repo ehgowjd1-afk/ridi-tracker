@@ -115,6 +115,8 @@ docs/data/
   events/latest.json      진행 중 이벤트
   events/ended.json       종료된 이벤트 (계속 쌓임)
   tags.json               작품별 태그 모음 (키워드 화면용)
+  interest/YYYY-MM/NN.json 전 작품 '관심' 수(찜한 사람 수) 날짜별 — rc와 같은 꼴, scripts/interest.py 가 매일 05:40
+  bl_webtoon/list.json    BL 웹툰 카테고리 전체 목록(완결·회차·마지막 회차일·작가) — 순위 밖 완결작 찾기용
   analysis/promo.json     웹툰·BL웹툰 작품별 프로모션 기간 (이벤트·회당가 할인·기간한정 기다무, 그래프 음영용)
   analysis/shifts.json    순위대 변화 목록 + 프로모션 때문인지 판정 (변동 탭 '순위대 변화'용)
 ```

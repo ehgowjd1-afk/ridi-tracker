@@ -1997,14 +1997,18 @@ function openBook(id, ctxKey) {
     // 별점 리뷰에서 반복되는 반응(AI가 묶고 개수는 프로그램이 셈) — 순위 상위 작품만 (scripts/cmt/rev_daily.mjs)
     softJSON("data/reviews_rx/" + id + ".json"),
     // 회차별 댓글 수 — 순위에 나온 웹툰 (scripts/cmt/cmt_counts.mjs)
-    softJSON("data/cmt_counts/" + id + ".json")
+    softJSON("data/cmt_counts/" + id + ".json"),
+    // 관심 수 — 전 작품 매일 (scripts/interest.py, data/interest/<월>/<NN>.json, 별점 rc 파일과 같은 꼴)
+    Promise.all(months.map(function (m) {
+      return softJSON("data/interest/" + m + "/" + rcShard(id) + ".json");
+    }))
   ]).then(function (r) {
     // 반복 반응 분석 뒤로 리뷰가 크게 늘었으면(순위 밖으로 나가 분석이 멈춘 작품 등) 낡은 카드 대신 매일 갱신되는 '공통 의견'을 보여 준다
     var rx = r[7];
     var cntNow = (r[1] && (r[1].count || (r[1].analysis && r[1].analysis.total))) || 0;
     var rb = (rx && rx.stats && rx.stats.all) || 0;
     if (rx && rb && cntNow > rb * 1.2 && cntNow - rb >= 30) rx = null;
-    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean), rx, r[8]);
+    drawBook(id, r[0], mergeAi(r[1], r[6]), r[2].filter(Boolean), ctxKey, r[5].filter(Boolean), rx, r[8], r[9].filter(Boolean));
   });
 }
 
@@ -2065,10 +2069,15 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") closeSheet();
 });
 
-function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccData) {
+function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccData, inMonths) {
   var b = D.latest.books[id] || (D.catalog && D.catalog[id]) || {};
   var body = $("#sheetBody");
   body.innerHTML = "";
+
+  // 관심 수(리디 '관심' 버튼을 누른 사람 수) — 머리말 배지와 아래 추이 카드에 쓴다
+  var inSeries = collectSeries(inMonths || [], function (h) { return (h.count || {})[id]; });
+  var inPts = inSeries.pts.filter(function (p) { return p.v !== null; });
+  var inNow = inPts.length ? inPts[inPts.length - 1].v : null;
 
   // ── 머리말 ──
   var head = el("div", "dhead");
@@ -2084,6 +2093,7 @@ function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccDa
   var stats = el("div", "dstats");
   if (b.st) stats.appendChild(el("span", "badge set", b.sn ? "세트 " + b.sn + "권" : "세트"));
   if (b.r) stats.appendChild(el("span", "badge", "★ " + b.r + " (" + num(b.rc) + ")"));
+  if (inNow !== null) stats.appendChild(el("span", "badge", "관심 " + num(inNow)));
   if (b.x) stats.appendChild(el("span", "badge ex", (detail && detail.exclusive_label) || "리디 독점"));
   if (b.ad) stats.appendChild(el("span", "badge ad", "19+"));
   stats.appendChild(el("span", "badge", b.c ? "완결" : "연재중"));
@@ -2144,6 +2154,32 @@ function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccDa
     rc0.appendChild(el("p", "hint",
       "현재 별점 " + num(b.rc) + "개. 며칠 더 모이면 늘어나는 추이가 그려집니다."));
     body.appendChild(rc0);
+  }
+
+  // ── 관심 수 추이 ──
+  // '관심'은 리디에서 작품을 찜한 사람 수. 매출 기준인 순위와 달리 무료·단편·완결작도 늘어나는 게 보인다.
+  // 2026-10-15부터 전 작품을 매일 모은다(순위 밖도).
+  if (inPts.length >= 2) {
+    var ic = el("div", "card");
+    ic.appendChild(el("h3", "", "관심 수 추이"));
+    var iw = el("div", "chartwrap");
+    iw.appendChild(lineChart(inSeries.pts, {
+      invert: false, fmt: function (v) { return num(Math.round(v)); }, bands: bands
+    }));
+    ic.appendChild(iw);
+    var iFirst = inPts[0].v, iLast = inPts[inPts.length - 1].v, iDiff = iLast - iFirst;
+    ic.appendChild(el("p", "hint",
+      inPts.length + "일간 " + num(iFirst) + "명 → " + num(iLast) + "명"
+      + " (" + (iDiff >= 0 ? "+" : "") + num(iDiff) + "명)"
+      + (inSeries.gaps ? " · 수집 없던 날 " + inSeries.gaps + "일 빈칸" : "")
+      + " · '관심'은 리디에서 작품을 찜한 사람 수예요"));
+    body.appendChild(ic);
+  } else if (inNow !== null) {
+    var ic0 = el("div", "card");
+    ic0.appendChild(el("h3", "", "관심 수 추이"));
+    ic0.appendChild(el("p", "hint",
+      "현재 관심 " + num(inNow) + "명(리디에서 작품을 찜한 사람 수). 며칠 더 모이면 늘어나는 추이가 그려집니다."));
+    body.appendChild(ic0);
   }
 
   // ── 태그 ──
