@@ -1,0 +1,75 @@
+name: 반복 반응 묶음 이름 다시 짓기 (한 번)
+
+# 사용자 요청(2026-10-17): 묶음 이름을 '남주 태혁이 다정하고 직진해서 좋다'처럼 구체적인 서사·캐릭터 요소로.
+# 기존 143작의 이름·기준만 Sonnet이 대표 리뷰를 읽고 다시 씁니다(리뷰 재분류 없음, 작품당 $0.03쯤).
+# 새로 분석되는 작품은 rev_daily 지시문이 바뀌어 처음부터 그렇게 짓습니다. 다 손보면 이 파일은 지워도 됩니다.
+on:
+  workflow_dispatch:
+    inputs:
+      run_usd:
+        description: "이번 실행 비용 상한(달러, 예상치 기준)"
+        type: string
+        default: "6"
+      max_works:
+        description: "이번에 손볼 작품 수 상한"
+        type: string
+        default: "200"
+      limit_usd:
+        description: "이 달 AI 사용 한도(달러)"
+        type: string
+        default: "30"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-reviews
+  cancel-in-progress: false
+
+jobs:
+  relabel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Claude SDK 설치
+        run: npm install --no-save --no-package-lock @anthropic-ai/sdk@0.128.0
+
+      - name: 이름 다시 짓기
+        timeout-minutes: 110
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUN_USD: ${{ inputs.run_usd || '6' }}
+          MAX_WORKS: ${{ inputs.max_works || '200' }}
+          LIMIT_USD: ${{ inputs.limit_usd || '30' }}
+        run: >
+          node scripts/cmt/rev_relabel.mjs --run-usd "$RUN_USD" --max-works "$MAX_WORKS" --limit-usd "$LIMIT_USD"
+          --wait-min 100 --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          for p in docs/data/reviews_rx state/ai_state.json; do
+            if [ -e "$p" ]; then git add "$p"; fi
+          done
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          git commit -q -m "반복 반응 묶음 이름을 구체적인 요소로"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1
