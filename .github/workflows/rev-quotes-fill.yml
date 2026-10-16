@@ -1,0 +1,56 @@
+name: 반복 반응 대표 리뷰 원문 채우기 (한 번)
+
+# 2026-10-16 전에 60자로 잘라 저장한 대표 리뷰를 원문 전체(600자까지)로 바꿔 넣습니다.
+# AI를 쓰지 않고 리디에서 리뷰만 다시 받습니다. 다 채우면 이 파일은 지워도 됩니다.
+on:
+  workflow_dispatch:
+    inputs:
+      max_works:
+        description: "이번에 손볼 작품 수 상한"
+        type: string
+        default: "1000"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-reviews          # 반복 반응 분석(rev_daily)과 같은 파일을 만지므로 겹치지 않게
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 노드 준비
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 원문 채우기
+        timeout-minutes: 55
+        env:
+          MAX_WORKS: ${{ inputs.max_works || '1000' }}
+        run: node scripts/cmt/rev_quotes_fill.mjs --max-works "$MAX_WORKS"
+
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/reviews_rx
+          if git diff --staged --quiet; then
+            echo "바뀐 내용이 없어 커밋하지 않습니다."
+            exit 0
+          fi
+          git commit -q -m "반복 반응 대표 리뷰를 원문 전체로"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git pull --rebase -q || { git rebase --abort; sleep 5; }
+            sleep $((i * 5))
+          done
+          echo "저장 실패"; exit 1

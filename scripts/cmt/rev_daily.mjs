@@ -5,7 +5,7 @@
  *   리뷰 수는 트래커가 매일 세는 docs/data/reviews/<id>.json 의 count 로 판단(리디에 따로 묻지 않음).
  * 돈: 하루 상한(--run-usd)과 이 달 한도(--limit-usd, 다른 AI 작업과 같은 state/ai_state.json) 안에서만 보낸다.
  *     일괄은 보내는 즉시 예상 비용을 먼저 기록하고, 결과를 받으면 실제 금액으로 맞춘다(batch.mjs).
- * 결과: docs/data/reviews_rx/<id>.json — 묶음·개수·평균 별점 + 묶음마다 대표 리뷰 몇 개(60자 이내로 자름, 아이디 없음).
+ * 결과: docs/data/reviews_rx/<id>.json — 묶음·개수·평균 별점 + 묶음마다 대표 리뷰 몇 개(원문 600자까지, 아이디 없음).
  * 같은 작품이 3번 실패하면 14일 동안 쉬게 한다(state/rev_rx.json).
  * 2단계가 시간 초과 등으로 끝나지 못하면, 이미 돈을 낸 1단계 묶음(AI가 쓴 이름·기준만, 리뷰 원문과 겹치는 글은 뺌)을
  * state/rev_rx.json 의 reuse 에 남겨 다음 실행에서 1단계(Sonnet)를 다시 사지 않는다(14일 안).
@@ -22,7 +22,9 @@ import { createBatcher, costOf as rawCost, Waiting } from "./batch.mjs";
 const STATE = "state/ai_state.json", RX_STATE = "state/rev_rx.json";
 const EST_PER_REVIEW = 0.00008;   // 2단계: 리뷰 1개당 예상(실측 약 $0.00004의 2배)
 const EST_THEME_WORK = 0.08;      // 1단계: 작품 1개당 예상(실측 약 $0.044의 2배)
-const QUOTES = 5, QUOTE_LEN = 60;
+// 대표 리뷰는 원문을 그대로 싣는다(600자까지 — AI에 보내는 길이와 같음). 예전엔 60자에서 잘랐는데
+// 화면에서 전체를 읽고 싶다는 요청(2026-10-16)으로 늘렸다. 기존 파일은 scripts/cmt/rev_quotes_fill.mjs 가 채운다.
+const QUOTES = 5, QUOTE_LEN = 600;
 const WEBNOVEL = [999001, 1650, 6050, 1750, 4150], WEBTOON = [1600, 4250];
 const MOCK = !!process.env.CMT_MOCK;
 const T_START = Date.now();
