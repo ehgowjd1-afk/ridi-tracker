@@ -15,15 +15,15 @@ on:
       run_usd:
         description: "이번 실행 비용 상한(달러, 예상치 기준 — 실제는 보통 그 절반쯤)"
         type: string
-        default: "6"
+        default: "12"
       max_works:
         description: "이번에 분석할 작품 수 상한"
         type: string
-        default: "40"
+        default: "100"
       limit_usd:
         description: "이 달 AI 사용 한도(달러)"
         type: string
-        default: "30"
+        default: "60"
 
 permissions:
   contents: write
@@ -56,9 +56,9 @@ jobs:
         timeout-minutes: 120
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          RUN_USD: ${{ inputs.run_usd || '6' }}
-          MAX_WORKS: ${{ inputs.max_works || '40' }}
-          LIMIT_USD: ${{ inputs.limit_usd || '30' }}
+          RUN_USD: ${{ inputs.run_usd || '12' }}
+          MAX_WORKS: ${{ inputs.max_works || '100' }}
+          LIMIT_USD: ${{ inputs.limit_usd || '60' }}
         run: >
           node scripts/cmt/rev_daily.mjs --run-usd "$RUN_USD" --max-works "$MAX_WORKS" --limit-usd "$LIMIT_USD"
           --wait-min 100 --summary "$GITHUB_STEP_SUMMARY"
