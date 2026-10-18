@@ -1,0 +1,41 @@
+name: 리디 실시간 랭킹 (매시)
+
+# 장르별 '실시간 랭킹' 50위를 한 시간에 한 번 모읍니다 (요청 13번, 1분). docs/data/live/<날짜>.json
+on:
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-rank
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 실시간 랭킹 받기
+        run: python scripts/live_rank.py
+      - name: 결과 저장(커밋)
+        if: always()
+        run: |
+          git config user.name "ehgowjd1-afk"
+          git config user.email "ehgowjd1@gmail.com"
+          git add docs/data/live
+          if git diff --staged --quiet; then echo "바뀐 내용이 없어 커밋하지 않습니다."; exit 0; fi
+          git commit -q -m "실시간 랭킹: $(TZ=Asia/Seoul date '+%m-%d %H시')"
+          for i in 1 2 3 4 5; do
+            if git push; then echo "저장 완료"; exit 0; fi
+            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+            git fetch origin main
+            git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || exit 1
+          done
+          echo "저장 실패"; exit 1
