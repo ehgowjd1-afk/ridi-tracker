@@ -288,7 +288,7 @@ function newRow(r, g, today) {
   if (b.reg) sub.appendChild(el("span", "badge", "론칭 " + b.reg.slice(5).replace("-", "/") + (days !== null ? " · " + days + "일째" : "")));
   if (b.n) sub.appendChild(el("span", "badge", b.n + "화"));
   if (bulkLaunched(b)) sub.appendChild(el("span", "badge", "재발매"));
-  if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
+  if (b.x) sub.appendChild(el("span", "badge ex", exLabel(b)));
   if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
   if (b.i != null) sub.appendChild(el("span", "badge", "관심 " + num(b.i) + (b.i7 ? " (+" + num(b.i7) + "/7일)" : "")));
@@ -413,6 +413,9 @@ function drawRank() {
   if (!shown) list.appendChild(el("li", "empty", "표시할 작품이 없습니다."));
 }
 
+// 독점 배지 글자 — 리디는 세 가지로 나눈다: 오리지널(리디 제작) / 단독(리디에만 있음) / 선공개(리디가 먼저). 종류를 모르면 '독점'.
+function exLabel(b) { return { o: "오리지널", s: "리디 단독", p: "선공개" }[b && b.xt] || "독점"; }
+
 function deltaEl(id, ch) {
   var d = el("div", "d");
   if (ch.new && ch.new.indexOf(id) >= 0) { d.textContent = "NEW"; d.className = "d new"; return d; }
@@ -445,7 +448,7 @@ function bookRow(id, b, rank, ch, ctxKey) {
   var sub = el("div", "sub");
   // 세트(묶음) 상품은 리디 순위에 단행본과 따로 올라온다. 합치지 않고 표시만 한다.
   if (b.st) sub.appendChild(el("span", "badge set", b.sn ? "세트 " + b.sn + "권" : "세트"));
-  if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
+  if (b.x) sub.appendChild(el("span", "badge ex", exLabel(b)));
   if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
   if (b.ep) sub.appendChild(el("span", "badge", b.ep + (b.u || "화")));
@@ -2214,7 +2217,7 @@ function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccDa
   if (b.st) stats.appendChild(el("span", "badge set", b.sn ? "세트 " + b.sn + "권" : "세트"));
   if (b.r) stats.appendChild(el("span", "badge", "★ " + b.r + " (" + num(b.rc) + ")"));
   if (inNow !== null) stats.appendChild(el("span", "badge", "관심 " + num(inNow)));
-  if (b.x) stats.appendChild(el("span", "badge ex", (detail && detail.exclusive_label) || "리디 독점"));
+  if (b.x) stats.appendChild(el("span", "badge ex", (detail && detail.exclusive_label) || exLabel(b)));
   if (b.ad) stats.appendChild(el("span", "badge ad", "19+"));
   stats.appendChild(el("span", "badge", b.c ? "완결" : "연재중"));
   if (b.ep) stats.appendChild(el("span", "badge", "총 " + b.ep + (b.u || "화")));

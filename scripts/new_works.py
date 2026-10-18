@@ -45,6 +45,8 @@ def slim(b):
         "ad": bool(b.get("adultsOnly")),
         "pb": ((b.get("publisher") or {}).get("name")) or "",
         "x": bool(b.get("isOnly") or b.get("isOriginal") or b.get("isPreExclusive")),
+        # 독점 종류: o 오리지널 / s 단독 / p 선공개 (books.json 의 xt 와 같은 뜻)
+        "xt": "o" if b.get("isOriginal") else ("s" if b.get("isOnly") else ("p" if b.get("isPreExclusive") else None)),
     }
 
 
