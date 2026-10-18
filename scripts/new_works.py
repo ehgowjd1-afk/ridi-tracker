@@ -24,7 +24,7 @@ from ridi.storage import Store  # noqa: E402
 
 URL = f"{config.API_BASE}/v2/first-releases"
 LIMIT = 50
-MAX_PAGES = 10
+MAX_PAGES = 12   # 600위까지 — 전체 웹소설(519)은 다 담기고, e북(1,000~2,300)은 판매순 상위만
 
 
 def today_kst():
