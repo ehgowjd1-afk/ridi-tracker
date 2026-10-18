@@ -69,6 +69,61 @@ def fetch_group(client, cats, order="sales"):
     return ids, books, total
 
 
+def shard(book_id):
+    s = str(book_id)
+    return ("0" + s[-2:])[-2:]
+
+
+def attach_interest(store, today, books):
+    """관심 수(docs/data/interest/<월>/<NN>.json)에서 최신값(i)과 7일 전 대비 증가(i7)를 붙인다."""
+    months = sorted({today[:7], (dt.date.fromisoformat(today) - dt.timedelta(days=10)).strftime("%Y-%m")})
+    cache = {}
+    week_ago = (dt.date.fromisoformat(today) - dt.timedelta(days=7)).strftime("%Y-%m-%d")
+    hit = 0
+    for bid, b in books.items():
+        series = []
+        for m in months:
+            key = (m, shard(bid))
+            if key not in cache:
+                cache[key] = store.read("interest", m, f"{shard(bid)}.json", default=None) or {}
+            h = cache[key]
+            arr = (h.get("count") or {}).get(bid)
+            if arr:
+                series.extend(zip(h.get("days") or [], arr))
+        series = [(d, v) for d, v in series if v is not None]
+        if not series:
+            continue
+        series.sort()
+        b["i"] = series[-1][1]
+        old = [v for d, v in series if d <= week_ago]
+        if old:
+            b["i7"] = series[-1][1] - old[-1]
+        hit += 1
+    return hit
+
+
+def attach_history(store, today, out):
+    """어제 파일과 비교한 판매순 변동(d1)과 처음 본 날(since)을 묶음마다 붙인다."""
+    folder = os.path.join(store.root, "newworks")
+    dates = sorted(f[:-5] for f in os.listdir(folder) if f.endswith(".json") and f[:4].isdigit() and f[:-5] < today) if os.path.isdir(folder) else []
+    prev = store.read("newworks", f"{dates[-1]}.json", default=None) if dates else None
+    for key, g in out["groups"].items():
+        pg = (prev or {}).get("groups", {}).get(key)
+        since = dict((pg or {}).get("since") or {})
+        d1 = {}
+        if pg:
+            prev_rank = {bid: i + 1 for i, bid in enumerate(pg.get("ids") or [])}
+            for i, bid in enumerate(g["ids"]):
+                d1[bid] = (prev_rank[bid] - (i + 1)) if bid in prev_rank else "new"
+                since.setdefault(bid, prev["date"] if bid in prev_rank else today)
+        else:
+            for bid in g["ids"]:
+                since.setdefault(bid, today)
+        g["d1"] = d1
+        g["since"] = {bid: since[bid] for bid in g["ids"] if bid in since}
+    return dates[-1] if dates else None
+
+
 def main():
     ap = argparse.ArgumentParser(description="리디 신작 판매순 수집")
     ap.add_argument("--interval", type=float, default=None)
@@ -89,9 +144,11 @@ def main():
         out["groups"][key] = {"name": name, "section": section, "total": total, "ids": ids}
         out["books"].update(books)
         print(f"  {name}: {len(ids)}종 (리디 집계 {total})")
+    hit = attach_interest(store, today, out["books"])
+    prev_date = attach_history(store, today, out)
     store.write(out, "newworks", f"{today}.json")
     store.write(out, "newworks", "latest.json")
-    print(f"저장: 묶음 {len(out['groups'])}개, 작품 {len(out['books'])}종")
+    print(f"저장: 묶음 {len(out['groups'])}개, 작품 {len(out['books'])}종 (관심 수 붙은 작품 {hit}종, 어제 파일 {prev_date or '없음'})")
     return 0
 
 

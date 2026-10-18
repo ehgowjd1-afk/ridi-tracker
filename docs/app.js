@@ -113,6 +113,7 @@ function boot() {
       setupCombo();
       setupEvent();
       setupSearch();
+      setupNew();
       setupTheme();
       render();
     })
@@ -177,14 +178,126 @@ function render() {
   });
   var rank = isRankView(UI.view);
   $("#view-rank").classList.toggle("hidden", !rank);
-  ["move", "keyword", "combo", "event", "search"].forEach(function (v) {
+  ["new", "move", "keyword", "combo", "event", "search"].forEach(function (v) {
     $("#view-" + v).classList.toggle("hidden", v !== UI.view);
   });
   if (rank) drawRank();
+  if (UI.view === "new") drawNew();
   if (UI.view === "move") drawMove();
   if (UI.view === "keyword") drawKeyword();
   if (UI.view === "combo") drawCombo();
   if (UI.view === "event") drawEvents();
+}
+
+// ────────────────────────────────────────── 신작 (리디 판매순)
+// data/newworks/latest.json: {date, groups:{키:{name, section, total, ids:[판매순], d1:{id:어제 대비 변동}, since:{id:처음 본 날}}},
+//                            books:{id:{t,a,reg,pub,n,c,rc,ad,pb,x,i(관심),i7(관심 7일 증가)}}}
+var NEW = { data: null, group: null, sort: "sales", since: 60, hideAdult: false };
+
+function setupNew() {
+  $("#newSort").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-sort]");
+    if (!b) return;
+    NEW.sort = b.dataset.sort;
+    Array.prototype.forEach.call($("#newSort").children, function (x) { x.classList.toggle("on", x === b); });
+    drawNew();
+  });
+  $("#newSince").addEventListener("change", function () { NEW.since = Number(this.value); drawNew(); });
+  $("#newHideAdult").addEventListener("change", function () { NEW.hideAdult = this.checked; drawNew(); });
+  $("#newGroupPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-group]");
+    if (!b) return;
+    NEW.group = b.dataset.group;
+    drawNew();
+  });
+}
+
+function drawNew() {
+  var list = $("#newList"), head = $("#newHead");
+  if (!NEW.data) {
+    head.textContent = "불러오는 중…";
+    softJSON("data/newworks/latest.json").then(function (j) {
+      if (!j || !j.groups) { head.textContent = "신작 판매순은 첫 수집(매일 05:40) 뒤에 표시됩니다."; return; }
+      NEW.data = j;
+      // 묶음 단추: 웹소설 → 웹툰 → E북 순서, '전체'는 맨 앞
+      var order = { webnovel: 0, webtoon: 1, ebook: 2 };
+      var keys = Object.keys(j.groups).sort(function (a, b) {
+        var ga = j.groups[a], gb = j.groups[b];
+        return (order[ga.section] - order[gb.section]) || ((/^9990/.test(a) ? 0 : 1) - (/^9990/.test(b) ? 0 : 1)) || a.localeCompare(b);
+      });
+      var pick = $("#newGroupPick");
+      pick.innerHTML = "";
+      keys.forEach(function (k) { var b = el("button", "", j.groups[k].name); b.dataset.group = k; pick.appendChild(b); });
+      // 기본: 지금 보던 랭킹 탭과 같은 분류의 첫 묶음 (웹툰 탭이었으면 웹툰)
+      if (!NEW.group || !j.groups[NEW.group]) {
+        NEW.group = keys.filter(function (k) { return j.groups[k].section === UI.section; })[0] || keys[0];
+      }
+      drawNew();
+    });
+    return;
+  }
+  var j = NEW.data, g = j.groups[NEW.group];
+  Array.prototype.forEach.call($("#newGroupPick").children, function (b) { b.classList.toggle("on", b.dataset.group === NEW.group); });
+  list.innerHTML = "";
+  if (!g) { head.textContent = ""; return; }
+  var today = j.date, cut = new Date(Date.parse(today) - NEW.since * 864e5).toISOString().slice(0, 10);
+  var rows = g.ids.map(function (id, i) { return { id: id, b: j.books[id] || {}, sales: i + 1 }; })
+    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad); });
+  var sorters = {
+    sales: function (a, b) { return a.sales - b.sales; },
+    reg: function (a, b) { return (b.b.reg || "").localeCompare(a.b.reg || "") || (a.sales - b.sales); },
+    i7: function (a, b) { return ((b.b.i7 || 0) - (a.b.i7 || 0)) || (a.sales - b.sales); },
+    rc: function (a, b) { return ((b.b.rc || 0) - (a.b.rc || 0)) || (a.sales - b.sales); }
+  };
+  rows.sort(sorters[NEW.sort] || sorters.sales);
+  head.innerHTML = "<b>" + g.name + "</b> 신작 " + num(rows.length) + "종 · " + today + " 판매순 기준"
+    + (g.total && g.total > g.ids.length ? " (리디 집계 " + num(g.total) + "종 중 판매순 " + num(g.ids.length) + "위까지)" : "");
+  var frag = document.createDocumentFragment();
+  rows.forEach(function (r) { frag.appendChild(newRow(r, g, today)); });
+  list.appendChild(frag);
+  if (!rows.length) list.appendChild(el("li", "empty", "조건에 맞는 신작이 없습니다."));
+}
+
+function newRow(r, g, today) {
+  var b = r.b, id = r.id;
+  var li = el("li", "bookrow");
+  li.tabIndex = 0;
+  var rk = el("div", "rk");
+  rk.appendChild(el("div", "n", r.sales));
+  var d1 = g.d1 && g.d1[id];
+  if (d1 === "new") rk.appendChild(el("div", "d new", "NEW"));
+  else if (typeof d1 === "number" && d1) rk.appendChild(el("div", "d " + (d1 > 0 ? "up" : "down"), (d1 > 0 ? "▲" : "▼") + Math.abs(d1)));
+  li.appendChild(rk);
+
+  var img = el("img", "cover");
+  img.loading = "lazy"; img.src = coverUrl(id, "small"); img.alt = "";
+  img.onerror = function () { this.style.visibility = "hidden"; };
+  li.appendChild(img);
+
+  var info = el("div", "info");
+  info.appendChild(el("div", "tt", b.t || "(제목 없음)"));
+  info.appendChild(el("div", "au", (b.a || []).join(", ") + (b.pb ? " · " + b.pb : "")));
+  var sub = el("div", "sub");
+  var days = b.reg ? Math.round((Date.parse(today) - Date.parse(b.reg)) / 864e5) : null;
+  if (b.reg) sub.appendChild(el("span", "badge", "론칭 " + b.reg.slice(5).replace("-", "/") + (days !== null ? " · " + days + "일째" : "")));
+  if (b.n) sub.appendChild(el("span", "badge", b.n + "화"));
+  if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
+  if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
+  if (b.c) sub.appendChild(el("span", "badge", "완결"));
+  if (b.i != null) sub.appendChild(el("span", "badge", "관심 " + num(b.i) + (b.i7 ? " (+" + num(b.i7) + "/7일)" : "")));
+  info.appendChild(sub);
+  li.appendChild(info);
+
+  var star = el("div", "star");
+  star.innerHTML = b.rc ? ("별점<br><span style='opacity:.65'>" + num(b.rc) + "</span>") : "";
+  li.appendChild(star);
+
+  // 순위에 오른 적 있는 작품은 상세 화면, 아니면 리디 작품 페이지
+  var inSite = !!((D.latest.books && D.latest.books[id]) || (D.catalog && D.catalog[id]));
+  var open = function () { if (inSite) openBook(id, null); else window.open(bookUrl(id), "_blank", "noopener"); };
+  li.addEventListener("click", open);
+  li.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+  return li;
 }
 
 function setupTheme() {

@@ -22,6 +22,7 @@
   <!-- 웹소설·E북·웹툰 탭은 데이터를 읽은 뒤 app.js가 앞쪽에 만들어 넣습니다.
        세 가지는 리디에서 순위를 매기는 기준 자체가 다르므로 섞지 않습니다. -->
   <nav class="wrap tabs" id="mainTabs">
+    <button data-view="new">신작</button>
     <button data-view="move">변동</button>
     <button data-view="keyword">키워드</button>
     <button data-view="combo">조합</button>
@@ -46,6 +47,31 @@
     </div>
     <div id="rankHead" class="listhead"></div>
     <ol id="rankList" class="booklist"></ol>
+  </section>
+
+  <!-- ── 신작 ─────────────────────────────────────────── -->
+  <!-- 리디 '이번주 인기 신작'의 원본 목록: 1화 등록 60일 안쪽 작품을 리디 판매순으로 전부 (data/newworks, 매일 05:40) -->
+  <section id="view-new" class="view hidden">
+    <div class="controls">
+      <div class="seg" id="newGroupPick"></div>
+      <div class="seg small" id="newSort">
+        <button data-sort="sales" class="on">판매순</button>
+        <button data-sort="reg">최근 론칭</button>
+        <button data-sort="i7">관심 7일 증가</button>
+        <button data-sort="rc">별점 수</button>
+      </div>
+      <div class="row">
+        <label class="field"><span>론칭</span><select id="newSince" aria-label="론칭 시점">
+          <option value="60">60일 안</option><option value="30">30일 안</option><option value="14">2주 안</option><option value="7">1주 안</option>
+        </select></label>
+        <label class="chk"><input type="checkbox" id="newHideAdult"> 성인 작품 숨기기</label>
+      </div>
+    </div>
+    <div id="newHead" class="listhead"></div>
+    <ol id="newList" class="booklist"></ol>
+    <p class="hint">판매순은 리디가 신작(1화 등록 60일 안)을 판매 점수로 줄 세운 것으로, 주간 베스트와 가장 비슷하게 움직입니다(상관 0.84~0.98).
+      회차가 올라온 다음 날 순위가 가장 높고 그 뒤 며칠간 내려가는 톱니가 있으니, 같은 날 비교보다 '회차 공개 다음 날 순위'끼리 비교하는 게 정확합니다.
+      ▲▼는 어제 판매순 대비 변동, 관심은 리디에서 작품을 찜한 사람 수(7일 증가분 포함)입니다.</p>
   </section>
 
   <!-- ── 변동 ─────────────────────────────────────────── -->
@@ -186,6 +212,6 @@
 <script src="xlsx.js?v=39"></script>
 <!-- 리뷰 요소별 분석 엔진 — GitHub Actions(scripts/reviews_full.js)와 같은 파일을 쓴다 -->
 <script src="rabsa.js?v=45"></script>
-<script src="app.js?v=54"></script>
+<script src="app.js?v=55"></script>
 </body>
 </html>
