@@ -139,6 +139,7 @@ function rcShard(id) { const s = String(id); return ("0" + s.slice(-2)).slice(-2
 async function sweepRatings(catalog, state, report) {
   const cats = args.rcCats || RC_CATEGORIES;
   const found = {};                    // 작품ID → 별점 수
+  const rankOf = {};                   // 작품ID → {카테고리: 인기순 순위} — 200위 밖까지 (2026-10-18부터 저장)
   const capped = [];
 
   // 한 카테고리를 한 가지 정렬로 훑는다. API는 6000번째까지만 주므로 그만큼 받았으면 '상한'.
@@ -151,14 +152,16 @@ async function sweepRatings(catalog, state, report) {
       catch (e) { if (e instanceof Stop429) throw e; console.log(`  카테고리 ${cat} (${order}) offset ${offset} 실패: ${e.message}`); break; }
       const items = ((j && j.data) || {}).items || [];
       pages++;
-      for (const it of items) {
+      items.forEach((it, i) => {
         const b = it.book || {};
         const id = String(b.bookId || "");
-        if (!id) continue;
+        if (!id) return;
         const rc = (b.ratings || []).reduce((s, r) => s + (r.count || 0), 0);
         if (!(id in found) || rc > found[id]) found[id] = rc;
+        // 인기순(판매 점수) 순위 — 베스트셀러 200위 밖 작품의 자리도 알 수 있다. 세부 장르 기준.
+        if (order === "popular") { const p = rankOf[id] || (rankOf[id] = {}); if (!(cat in p)) p[cat] = offset + i + 1; }
         n++;
-      }
+      });
       if (items.length < 200) break;
     }
     return { n, pages, capped: n >= 6000 };
@@ -188,16 +191,24 @@ async function sweepRatings(catalog, state, report) {
     const h = readJSON(file, null) || { month: month, days: [], count: {} };
     let slot = h.days.indexOf(TODAY);
     if (slot < 0) { h.days.push(TODAY); h.days.sort(); slot = h.days.indexOf(TODAY); }
+    h.pop = h.pop || {};               // 인기순 순위: {작품ID: {세부장르: [날짜별 순위]}}
     for (const id of shards[sh] || []) {
       const arr = h.count[id] || (h.count[id] = []);
       while (arr.length < h.days.length) arr.push(null);
       arr[slot] = found[id];
+      for (const [cat, r] of Object.entries(rankOf[id] || {})) {
+        const p = h.pop[id] || (h.pop[id] = {});
+        const pa = p[cat] || (p[cat] = []);
+        while (pa.length < h.days.length) pa.push(null);
+        pa[slot] = r;
+      }
     }
     // 배열 길이를 days 에 맞춘다 (오늘 못 찾은 작품은 null)
     for (const id of Object.keys(h.count)) {
       const arr = h.count[id];
       while (arr.length < h.days.length) arr.push(null);
     }
+    for (const p of Object.values(h.pop)) for (const pa of Object.values(p)) while (pa.length < h.days.length) pa.push(null);
     writeJSON(file, h);
   }
   if (!args.rcCats) state.rc_last = TODAY;      // 일부 카테고리만 돌린 시험은 '오늘 끝남'으로 치지 않음
