@@ -71,7 +71,8 @@ class Store:
             out["c"] = 1
         if b.get("is_exclusive"):
             out["x"] = 1
-            # 독점의 종류 — o 리디 오리지널(리디가 만든 작품) / s 리디 단독(다른 플랫폼엔 없음) / p 선공개(리디가 먼저, 나중에 다른 곳에도)
+            # 독점의 종류 — o is_original(리디 오리지널) / s is_only / p is_pre_exclusive
+            # ※ p 가 화면의 'RIDI ONLY'(상세 제목 '리디에만 있는 독점 작품')에 해당한다. '선공개'가 아니다(2026-10-19 대조). o·s 는 요즘 거의 안 붙음.
             out["xt"] = "o" if b.get("is_original") else ("s" if b.get("is_only") else "p")
         if b.get("adults_only"):
             out["ad"] = 1

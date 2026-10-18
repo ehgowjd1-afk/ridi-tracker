@@ -413,8 +413,9 @@ function drawRank() {
   if (!shown) list.appendChild(el("li", "empty", "표시할 작품이 없습니다."));
 }
 
-// 독점 배지 글자 — 리디는 세 가지로 나눈다: 오리지널(리디 제작) / 단독(리디에만 있음) / 선공개(리디가 먼저). 종류를 모르면 '독점'.
-function exLabel(b) { return { o: "오리지널", s: "리디 단독", p: "선공개" }[b && b.xt] || "독점"; }
+// 독점 배지 글자. 리디 API 플래그 is_pre_exclusive 가 화면의 'RIDI ONLY'(상세 제목 '리디에만 있는 독점 작품')와 맞는다
+// (2026-10-19 대조: 플래그 있는 790작 중 644작이 그 문구, 나머지는 문구만 없음). is_only·is_original 은 요즘 작품엔 거의 안 붙는다.
+function exLabel(b) { return { o: "리디 오리지널", s: "리디 단독", p: "RIDI ONLY" }[b && b.xt] || "RIDI ONLY"; }
 
 function deltaEl(id, ch) {
   var d = el("div", "d");
