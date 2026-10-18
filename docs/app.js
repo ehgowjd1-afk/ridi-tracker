@@ -192,7 +192,15 @@ function render() {
 // ────────────────────────────────────────── 신작 (리디 판매순)
 // data/newworks/latest.json: {date, groups:{키:{name, section, total, ids:[판매순], d1:{id:어제 대비 변동}, since:{id:처음 본 날}}},
 //                            books:{id:{t,a,reg,pub,n,c,rc,ad,pb,x,i(관심),i7(관심 7일 증가)}}}
-var NEW = { data: null, group: null, sort: "sales", since: 60, hideAdult: false };
+var NEW = { data: null, group: null, sort: "sales", since: 60, hideAdult: false, onlyFresh: false };
+
+// 등록일에 비해 회차가 너무 많으면 1화부터 연재한 신작이 아니라 다른 데서 연재하던 걸 몰아서 올린 것(이관·완전판·15세 개정판).
+// 주 2회 연재해도 하루 0.3화를 넘기 어려우므로, 등록 후 일수×0.5 + 8화를 넘으면 '일괄 공개'로 본다.
+function bulkLaunched(b, today) {
+  if (!b.reg || !b.n) return false;
+  var days = Math.max(0, Math.round((Date.parse(today) - Date.parse(b.reg)) / 864e5));
+  return b.n > days * 0.5 + 8;
+}
 
 function setupNew() {
   $("#newSort").addEventListener("click", function (e) {
@@ -204,6 +212,7 @@ function setupNew() {
   });
   $("#newSince").addEventListener("change", function () { NEW.since = Number(this.value); drawNew(); });
   $("#newHideAdult").addEventListener("change", function () { NEW.hideAdult = this.checked; drawNew(); });
+  $("#newOnlyFresh").addEventListener("change", function () { NEW.onlyFresh = this.checked; drawNew(); });
   $("#newGroupPick").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-group]");
     if (!b) return;
@@ -242,7 +251,7 @@ function drawNew() {
   if (!g) { head.textContent = ""; return; }
   var today = j.date, cut = new Date(Date.parse(today) - NEW.since * 864e5).toISOString().slice(0, 10);
   var rows = g.ids.map(function (id, i) { return { id: id, b: j.books[id] || {}, sales: i + 1 }; })
-    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad); });
+    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad) && !(NEW.onlyFresh && bulkLaunched(r.b, today)); });
   var sorters = {
     sales: function (a, b) { return a.sales - b.sales; },
     reg: function (a, b) { return (b.b.reg || "").localeCompare(a.b.reg || "") || (a.sales - b.sales); },
@@ -281,6 +290,7 @@ function newRow(r, g, today) {
   var days = b.reg ? Math.round((Date.parse(today) - Date.parse(b.reg)) / 864e5) : null;
   if (b.reg) sub.appendChild(el("span", "badge", "론칭 " + b.reg.slice(5).replace("-", "/") + (days !== null ? " · " + days + "일째" : "")));
   if (b.n) sub.appendChild(el("span", "badge", b.n + "화"));
+  if (bulkLaunched(b, today)) { var bk = el("span", "badge", "일괄 공개"); bk.title = "등록일에 비해 회차가 많아 다른 곳에서 연재하던 작품을 몰아서 올린 것으로 보임 (이관·완전판·개정판)"; sub.appendChild(bk); }
   if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
   if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
