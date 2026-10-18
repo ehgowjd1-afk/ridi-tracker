@@ -192,7 +192,12 @@ function render() {
 // ────────────────────────────────────────── 신작 (리디 판매순)
 // data/newworks/latest.json: {date, groups:{키:{name, section, total, ids:[판매순], d1:{id:어제 대비 변동}, since:{id:처음 본 날}}},
 //                            books:{id:{t,a,reg,pub,n,c,rc,ad,pb,x,i(관심),i7(관심 7일 증가)}}}
-var NEW = { data: null, group: null, sort: "sales", since: 60, hideAdult: false };
+var NEW = { data: null, group: null, sort: "sales", since: 60, hideAdult: false, onlyFresh: false };
+
+// 개정판·완전판·합본은 같은 작품을 다시 낸 것이라 '신작'으로 세면 겹친다. 제목으로만 가른다.
+// (회차 수로 가르면 안 된다 — 리디 웹소설은 론칭 때 60화쯤을 한 번에 공개하는 게 보통이라 거의 전부 걸린다, 2026-10-18 확인)
+var REISSUE_RE = /개정판|완전판|합본|리마스터|무삭제판|세트\b/;
+function bulkLaunched(b) { return REISSUE_RE.test(b.t || ""); }
 
 function setupNew() {
   $("#newSort").addEventListener("click", function (e) {
@@ -204,6 +209,7 @@ function setupNew() {
   });
   $("#newSince").addEventListener("change", function () { NEW.since = Number(this.value); drawNew(); });
   $("#newHideAdult").addEventListener("change", function () { NEW.hideAdult = this.checked; drawNew(); });
+  $("#newOnlyFresh").addEventListener("change", function () { NEW.onlyFresh = this.checked; drawNew(); });
   $("#newGroupPick").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-group]");
     if (!b) return;
@@ -242,7 +248,7 @@ function drawNew() {
   if (!g) { head.textContent = ""; return; }
   var today = j.date, cut = new Date(Date.parse(today) - NEW.since * 864e5).toISOString().slice(0, 10);
   var rows = g.ids.map(function (id, i) { return { id: id, b: j.books[id] || {}, sales: i + 1 }; })
-    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad); });
+    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad) && !(NEW.onlyFresh && bulkLaunched(r.b)); });
   var sorters = {
     sales: function (a, b) { return a.sales - b.sales; },
     reg: function (a, b) { return (b.b.reg || "").localeCompare(a.b.reg || "") || (a.sales - b.sales); },
@@ -281,6 +287,7 @@ function newRow(r, g, today) {
   var days = b.reg ? Math.round((Date.parse(today) - Date.parse(b.reg)) / 864e5) : null;
   if (b.reg) sub.appendChild(el("span", "badge", "론칭 " + b.reg.slice(5).replace("-", "/") + (days !== null ? " · " + days + "일째" : "")));
   if (b.n) sub.appendChild(el("span", "badge", b.n + "화"));
+  if (bulkLaunched(b)) sub.appendChild(el("span", "badge", "재발매"));
   if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
   if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
