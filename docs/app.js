@@ -194,13 +194,10 @@ function render() {
 //                            books:{id:{t,a,reg,pub,n,c,rc,ad,pb,x,i(관심),i7(관심 7일 증가)}}}
 var NEW = { data: null, group: null, sort: "sales", since: 60, hideAdult: false, onlyFresh: false };
 
-// 등록일에 비해 회차가 너무 많으면 1화부터 연재한 신작이 아니라 다른 데서 연재하던 걸 몰아서 올린 것(이관·완전판·15세 개정판).
-// 주 2회 연재해도 하루 0.3화를 넘기 어려우므로, 등록 후 일수×0.5 + 8화를 넘으면 '일괄 공개'로 본다.
-function bulkLaunched(b, today) {
-  if (!b.reg || !b.n) return false;
-  var days = Math.max(0, Math.round((Date.parse(today) - Date.parse(b.reg)) / 864e5));
-  return b.n > days * 0.5 + 8;
-}
+// 개정판·완전판·합본은 같은 작품을 다시 낸 것이라 '신작'으로 세면 겹친다. 제목으로만 가른다.
+// (회차 수로 가르면 안 된다 — 리디 웹소설은 론칭 때 60화쯤을 한 번에 공개하는 게 보통이라 거의 전부 걸린다, 2026-10-18 확인)
+var REISSUE_RE = /개정판|완전판|합본|리마스터|무삭제판|세트\b/;
+function bulkLaunched(b) { return REISSUE_RE.test(b.t || ""); }
 
 function setupNew() {
   $("#newSort").addEventListener("click", function (e) {
@@ -251,7 +248,7 @@ function drawNew() {
   if (!g) { head.textContent = ""; return; }
   var today = j.date, cut = new Date(Date.parse(today) - NEW.since * 864e5).toISOString().slice(0, 10);
   var rows = g.ids.map(function (id, i) { return { id: id, b: j.books[id] || {}, sales: i + 1 }; })
-    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad) && !(NEW.onlyFresh && bulkLaunched(r.b, today)); });
+    .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad) && !(NEW.onlyFresh && bulkLaunched(r.b)); });
   var sorters = {
     sales: function (a, b) { return a.sales - b.sales; },
     reg: function (a, b) { return (b.b.reg || "").localeCompare(a.b.reg || "") || (a.sales - b.sales); },
@@ -290,7 +287,7 @@ function newRow(r, g, today) {
   var days = b.reg ? Math.round((Date.parse(today) - Date.parse(b.reg)) / 864e5) : null;
   if (b.reg) sub.appendChild(el("span", "badge", "론칭 " + b.reg.slice(5).replace("-", "/") + (days !== null ? " · " + days + "일째" : "")));
   if (b.n) sub.appendChild(el("span", "badge", b.n + "화"));
-  if (bulkLaunched(b, today)) { var bk = el("span", "badge", "일괄 공개"); bk.title = "등록일에 비해 회차가 많아 다른 곳에서 연재하던 작품을 몰아서 올린 것으로 보임 (이관·완전판·개정판)"; sub.appendChild(bk); }
+  if (bulkLaunched(b)) sub.appendChild(el("span", "badge", "재발매"));
   if (b.x) sub.appendChild(el("span", "badge ex", "독점"));
   if (b.ad) sub.appendChild(el("span", "badge ad", "19+"));
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
