@@ -316,6 +316,12 @@ function newRow(r, g, today) {
     marks.push(u);
   }
   if (marks.length) info.appendChild(el("div", "sub newmarks", marks.join("  |  ")));
+  if (b.d) info.appendChild(el("div", "newdesc", b.d));
+  var price = [];
+  if (b.fr) price.push(b.fr + "화 무료");
+  if (b.pr != null) price.push("대여 " + num(b.pr) + "원");
+  if (b.pp != null) price.push("소장 " + num(b.pp) + "원");
+  if (price.length) info.appendChild(el("div", "newprice", price.join(" · ")));
   li.appendChild(info);
 
   var star = el("div", "star");
@@ -2266,6 +2272,10 @@ function drawBook(id, detail, reviewData, months, ctxKey, rcMonths, rxData, ccDa
   var bands = promoBands(promos);
   body.appendChild(rankTrendCard(id, months, ctxKey, { bands: bands, shifts: shifts }));
 
+  // ── 회차별 순위 ── 순위는 회차가 올라온 다음 날 튀므로 '몇 화째에 몇 위'로 본다
+  var erc = epRankCard(id, months, ctxKey);
+  if (erc) body.appendChild(erc);
+
   // ── 이 기간 걸린 프로모션 · 순위대 변화 판정 ──
   // 프로모션도 판정도 없는 작품에는 아무것도 붙이지 않는다.
   if (promos.length || shifts.length) body.appendChild(promoCard(promos, shifts));
@@ -2471,6 +2481,70 @@ function catLabelMap() {
 //   전체 순위가 나왔다. 이제 '어느 랭킹 기준으로 볼지'를 고를 수 있게 하고,
 //   작품을 열었던 그 랭킹(ctxKey)을 기본값으로 보여준다.
 //   extra = { bands: 프로모션 색 구간, shifts: 이 작품의 순위대 변화 판정 } (없어도 됨)
+// 회차별 순위: history 의 날짜별 순위(rank)와 날짜별 회차 수(ep)를 겹쳐, 회차마다
+//   first = 그 회차 수로 처음 잡힌 날의 순위(= 공개 다음 날 순위), best = 그 회차 동안 최고 순위, days = 그 회차로 머문 일수
+function epRankCard(id, months, ctxKey) {
+  var keys = {};
+  months.forEach(function (h) { var r = h.rank && h.rank[id]; if (r) Object.keys(r).forEach(function (k) { keys[k] = 1; }); });
+  var ks = Object.keys(keys);
+  var key = (ctxKey && keys[ctxKey]) ? ctxKey
+    : (ks.filter(function (k) { return /-DAILY$/.test(k); })[0] || ks.filter(function (k) { return /-WEEKLY$/.test(k); })[0]);
+  if (!key) return null;
+  var byEp = {}, order = [];
+  months.forEach(function (h) {
+    var rs = ((h.rank || {})[id] || {})[key] || [], eps = ((h.ep || {})[id]) || [];
+    (h.days || []).forEach(function (d, i) {
+      var r = rs[i], e = eps[i];
+      if (r == null || e == null) return;
+      var s = byEp[e];
+      if (!s) { s = byEp[e] = { ep: e, first: r, firstDay: d, best: r, bestDay: d, days: 0 }; order.push(e); }
+      s.days++;
+      if (r < s.best) { s.best = r; s.bestDay = d; }
+    });
+  });
+  order.sort(function (a, b) { return a - b; });
+  var rows = order.map(function (e) { return byEp[e]; });
+  if (rows.length < 2) return null;
+  var rk = D.latest.rankings[key] || {};
+  var unit = (D.latest.books[id] && D.latest.books[id].u) || "화";
+  var card = el("div", "card");
+  var PL = { DAILY: "오늘의 베스트", WEEKLY: "주간 베스트", MONTHLY: "월간 베스트", STEADY: "스테디셀러" };
+  card.appendChild(el("h3", "", "회차별 순위 — " + (rk.name || key) + " " + (PL[rk.period] || rk.period || "")));
+
+  var show = rows.slice(-40);
+  var W = 640, H = 190, L = 30, R = 8, T = 16, B = 30;
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "chart"); svg.style.height = "190px";
+  var mk = function (tag, attrs, text) { var e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+  var maxRank = Math.max.apply(null, show.map(function (s) { return s.first; }).concat([20]));
+  var step = (W - L - R) / show.length, bw = Math.max(3, step * 0.62);
+  var Y = function (r) { return T + ((r - 1) / (maxRank - 1 || 1)) * (H - T - B); };   // 1위가 꼭대기
+  [1, Math.round(maxRank / 2), maxRank].forEach(function (r) {
+    svg.appendChild(mk("line", { x1: L, x2: W - R, y1: Y(r), y2: Y(r), class: "grid" }));
+    svg.appendChild(mk("text", { x: L - 4, y: Y(r) + 4, "text-anchor": "end", class: "ax" }, r + "위"));
+  });
+  show.forEach(function (s, i) {
+    var x = L + i * step + (step - bw) / 2;
+    var g = mk("g", {});
+    // 막대 = 공개 다음 날 순위(막대가 높을수록 순위가 높음). 그 회차 동안 더 올랐으면 가는 선으로 최고 순위 표시
+    g.appendChild(mk("rect", { x: x, y: Y(s.first), width: bw, height: Math.max(1, H - B - Y(s.first)), class: "epbar" + (s.first <= 10 ? " top" : "") }));
+    if (s.best < s.first) g.appendChild(mk("line", { x1: x, x2: x + bw, y1: Y(s.best), y2: Y(s.best), class: "epbest" }));
+    if (show.length <= 20 || i % Math.ceil(show.length / 12) === 0 || i === show.length - 1)
+      g.appendChild(mk("text", { x: x + bw / 2, y: H - B + 13, "text-anchor": "middle", class: "ax" }, s.ep + unit));
+    g.appendChild(mk("title", {}, s.ep + unit + ": 공개 다음 날 " + s.first + "위 (" + s.firstDay.slice(5) + ")" + (s.best < s.first ? " · 그 회차 동안 최고 " + s.best + "위 (" + s.bestDay.slice(5) + ")" : "") + " · " + s.days + "일"));
+    svg.appendChild(g);
+  });
+  var w = el("div", "chartwrap"); w.appendChild(svg); card.appendChild(w);
+  var best = rows.reduce(function (a, b) { return b.best < a.best ? b : a; });
+  var top1 = rows.filter(function (s) { return s.best === 1; })[0], top10 = rows.filter(function (s) { return s.best <= 10; })[0];
+  card.appendChild(el("p", "hint",
+    "막대 = 그 회차가 올라온 다음 날 순위(1위가 꼭대기), 가는 선 = 그 회차 동안 최고 순위. "
+    + "최고 " + best.best + "위는 " + best.ep + unit + "째(" + best.bestDay.slice(5) + ")"
+    + (top1 ? " · 1위 첫 달성 " + top1.ep + unit : (top10 ? " · TOP10 첫 진입 " + top10.ep + unit : ""))
+    + (rows.length > show.length ? " · 최근 " + show.length + "개 회차만 표시" : "") + "."));
+  return card;
+}
+
 function rankTrendCard(id, months, ctxKey, extra) {
   extra = extra || {};
   var card = el("div", "card");
