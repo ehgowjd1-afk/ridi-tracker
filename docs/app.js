@@ -249,8 +249,10 @@ function drawNew() {
   var today = j.date, cut = new Date(Date.parse(today) - NEW.since * 864e5).toISOString().slice(0, 10);
   var rows = g.ids.map(function (id, i) { return { id: id, b: j.books[id] || {}, sales: i + 1 }; })
     .filter(function (r) { return (r.b.reg || "") >= cut && !(NEW.hideAdult && r.b.ad) && !(NEW.onlyFresh && bulkLaunched(r.b)); });
+  var bestRank = function (r) { var s = g.best && g.best[r.id]; return s && s.peak ? s.peak[0] : 999; };
   var sorters = {
     sales: function (a, b) { return a.sales - b.sales; },
+    best: function (a, b) { return (bestRank(a) - bestRank(b)) || (a.sales - b.sales); },
     reg: function (a, b) { return (b.b.reg || "").localeCompare(a.b.reg || "") || (a.sales - b.sales); },
     i7: function (a, b) { return ((b.b.i7 || 0) - (a.b.i7 || 0)) || (a.sales - b.sales); },
     rc: function (a, b) { return ((b.b.rc || 0) - (a.b.rc || 0)) || (a.sales - b.sales); }
@@ -293,6 +295,27 @@ function newRow(r, g, today) {
   if (b.c) sub.appendChild(el("span", "badge", "완결"));
   if (b.i != null) sub.appendChild(el("span", "badge", "관심 " + num(b.i) + (b.i7 ? " (+" + num(b.i7) + "/7일)" : "")));
   info.appendChild(sub);
+
+  // 몇 화째에 몇 위였나 — 순위는 회차가 올라온 뒤 튀므로 '그때 회차'를 같이 적는다
+  var epTxt = function (n) { return n ? n + "화" : "?화"; };
+  var marks = [];
+  var bs = g.best && g.best[id];
+  if (bs && bs.peak) {
+    var per = g.best_period === "WEEKLY" ? "주간" : "일간";
+    var t = per + " 베스트 최고 " + bs.peak[0] + "위(" + epTxt(bs.peak[2]) + ")";
+    if (bs.t1) t += " · 1위 첫 달성 " + epTxt(bs.t1[1]);
+    else if (bs.t10) t += " · TOP10 진입 " + epTxt(bs.t10[1]);
+    t += " · 순위권 " + bs.days + "일";
+    marks.push(t);
+  }
+  var ss = g.stats && g.stats[id];
+  if (ss && ss.days > 1 && ss.peak) {
+    var u = "판매순 최고 " + ss.peak[0] + "위(" + epTxt(ss.peak[2]) + ")";
+    if (ss.t1 && ss.peak[0] === 1) u += " · 1위 첫 달성 " + epTxt(ss.t1[1]);
+    if (ss.ep0) u += " · 론칭 " + ss.ep0 + "화로 시작";
+    marks.push(u);
+  }
+  if (marks.length) info.appendChild(el("div", "sub newmarks", marks.join("  |  ")));
   li.appendChild(info);
 
   var star = el("div", "star");

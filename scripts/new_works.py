@@ -126,6 +126,77 @@ def attach_history(store, today, out):
     return dates[-1] if dates else None
 
 
+def attach_sales_stats(store, today, out):
+    """신작 판매순의 날짜별 궤적(newworks/<날짜>.json)으로 작품마다 최고 순위와 그때 회차, 1위·TOP10 첫 달성 회차를 센다.
+    순위는 회차가 올라온 뒤 튀므로 '몇 화째에 몇 위'로 봐야 한다(사용자 지적 2026-10-19)."""
+    folder = os.path.join(store.root, "newworks")
+    dates = sorted(f[:-5] for f in os.listdir(folder) if f.endswith(".json") and f[:4].isdigit() and f[:-5] < today) if os.path.isdir(folder) else []
+    stats = {key: {} for key in out["groups"]}
+    def feed(date, data):
+        for key, g in (data.get("groups") or {}).items():
+            if key not in stats:
+                continue
+            books = data.get("books") or {}
+            for i, bid in enumerate(g.get("ids") or []):
+                if bid not in out["books"]:
+                    continue
+                n = (books.get(bid) or {}).get("n")
+                s = stats[key].setdefault(bid, {"ep0": n, "days": 0})
+                s["days"] += 1
+                r = i + 1
+                if "peak" not in s or r < s["peak"][0]:
+                    s["peak"] = [r, date, n]
+                if r <= 10 and "t10" not in s:
+                    s["t10"] = [date, n]
+                if r == 1 and "t1" not in s:
+                    s["t1"] = [date, n]
+    for d in dates:
+        data = store.read("newworks", f"{d}.json", default=None)
+        if data:
+            feed(d, data)
+    feed(today, out)
+    for key, g in out["groups"].items():
+        g["stats"] = {bid: stats[key][bid] for bid in g["ids"] if bid in stats[key]}
+
+
+def attach_best(store, today, out, days=60):
+    """일간(E북은 주간) 베스트셀러 200위 기록(daily/<날짜>.json)에서 신작마다 최고 순위·그때 회차, 1위·TOP10 첫 달성 회차."""
+    folder = os.path.join(store.root, "daily")
+    cut = (dt.date.fromisoformat(today) - dt.timedelta(days=days)).strftime("%Y-%m-%d")
+    dates = sorted(f[:-5] for f in os.listdir(folder) if f.endswith(".json") and f[:-5] >= cut) if os.path.isdir(folder) else []
+    want = set(out["books"])
+    best = {key: {} for key in out["groups"]}
+    period = {}
+    for d in dates:
+        D = store.read("daily", f"{d}.json", default=None)
+        if not D:
+            continue
+        snaps = D.get("snapshots") or {}
+        for key in out["groups"]:
+            rk = (D.get("rankings") or {}).get(f"{key}-DAILY") or (D.get("rankings") or {}).get(f"{key}-WEEKLY")
+            if not rk:
+                continue
+            period[key] = rk.get("period")
+            for i, bid in enumerate(rk.get("ids") or []):
+                bid = str(bid)
+                if bid not in want:
+                    continue
+                ep = (snaps.get(bid) or {}).get("ep")
+                s = best[key].setdefault(bid, {"days": 0})
+                s["days"] += 1
+                r = i + 1
+                if "peak" not in s or r < s["peak"][0]:
+                    s["peak"] = [r, d, ep]
+                if r <= 10 and "t10" not in s:
+                    s["t10"] = [d, ep]
+                if r == 1 and "t1" not in s:
+                    s["t1"] = [d, ep]
+    for key, g in out["groups"].items():
+        g["best"] = {bid: best[key][bid] for bid in g["ids"] if bid in best[key]}
+        g["best_period"] = period.get(key)
+    return len(dates)
+
+
 def main():
     ap = argparse.ArgumentParser(description="리디 신작 판매순 수집")
     ap.add_argument("--interval", type=float, default=None)
@@ -148,9 +219,11 @@ def main():
         print(f"  {name}: {len(ids)}종 (리디 집계 {total})")
     hit = attach_interest(store, today, out["books"])
     prev_date = attach_history(store, today, out)
+    attach_sales_stats(store, today, out)
+    nd = attach_best(store, today, out)
     store.write(out, "newworks", f"{today}.json")
     store.write(out, "newworks", "latest.json")
-    print(f"저장: 묶음 {len(out['groups'])}개, 작품 {len(out['books'])}종 (관심 수 붙은 작품 {hit}종, 어제 파일 {prev_date or '없음'})")
+    print(f"저장: 묶음 {len(out['groups'])}개, 작품 {len(out['books'])}종 (관심 수 붙은 작품 {hit}종, 어제 파일 {prev_date or '없음'}, 베스트 기록 {nd}일치)")
     return 0
 
 

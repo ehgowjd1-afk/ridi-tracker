@@ -394,6 +394,8 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .oprow .opc { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .76rem; }
 .oprow.exn b { color: var(--up); }
 .oprow .ope { color: var(--dim); font-size: .74rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 신작 탭: 몇 화째에 몇 위였나 */
+.newmarks { color: var(--accent); font-size: .74rem; margin-top: 3px; white-space: normal; }
 /* 묶음을 눌러 펼치면 대표 리뷰를 줄바꿈해 전체를 보여 준다 (접혀 있을 땐 한 줄 + …) */
 .oprow.open .ope { white-space: normal; line-height: 1.5; margin-top: 4px; }
 .opn .exh { font-size: .72rem; font-weight: 600; color: var(--dim); margin-top: 4px; }
