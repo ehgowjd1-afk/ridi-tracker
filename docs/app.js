@@ -312,7 +312,9 @@ function newRow(r, g, today) {
   if (ss && ss.days > 1 && ss.peak) {
     var u = "판매순 최고 " + ss.peak[0] + "위(" + epTxt(ss.peak[2]) + ")";
     if (ss.t1 && ss.peak[0] === 1) u += " · 1위 첫 달성 " + epTxt(ss.t1[1]);
-    if (ss.ep0) u += " · 론칭 " + ss.ep0 + "화로 시작";
+    // 우리 기록이 론칭 다음 날까지 시작된 작품만 '론칭 N화로 시작'을 믿을 수 있다 (기록 시작 전에 론칭한 작품은 첫 기록 시점 회차라 틀림)
+    var since = g.since && g.since[id];
+    if (ss.ep0 && since && b.reg && dayGap(since, b.reg) <= 1) u += " · 론칭 " + ss.ep0 + "화로 시작";
     marks.push(u);
   }
   if (marks.length) info.appendChild(el("div", "sub newmarks", marks.join("  |  ")));

@@ -46,8 +46,9 @@ def slim(b):
         "pb": ((b.get("publisher") or {}).get("name")) or "",
         # 리디 목록 화면에 보이는 것들: 소개 한 토막, 회당 대여·소장가, 무료 회차 수
         "d": " ".join(str((b.get("introduction") or {}).get("description") or "").split())[:160],
-        "pr": ((b.get("rental") or {}).get("fullPrice")),
-        "pp": ((b.get("purchase") or {}).get("fullPrice")),
+        # 목록 API가 주는 book 은 1화라 그 회차 가격은 0원(무료)일 수 있다 → 시리즈 기준 '0원이 아닌 최저 회당 가격'을 쓴다
+        "pr": ((s.get("rental") or {}).get("minPriceNonZero")) or ((b.get("rental") or {}).get("fullPrice")),
+        "pp": ((s.get("purchase") or {}).get("minPriceNonZero")) or ((b.get("purchase") or {}).get("fullPrice")),
         "fr": ((s.get("free") or {}).get("rental")) or 0,
         "x": bool(b.get("isOnly") or b.get("isOriginal") or b.get("isPreExclusive")),
         # 독점 종류: o isOriginal / s isOnly / p isPreExclusive(= 화면의 'RIDI ONLY') — books.json 의 xt 와 같은 뜻
