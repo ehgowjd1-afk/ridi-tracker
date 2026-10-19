@@ -44,6 +44,11 @@ def slim(b):
         "rc": sum((q.get("count") or 0) for q in (b.get("ratings") or [])),
         "ad": bool(b.get("adultsOnly")),
         "pb": ((b.get("publisher") or {}).get("name")) or "",
+        # 리디 목록 화면에 보이는 것들: 소개 한 토막, 회당 대여·소장가, 무료 회차 수
+        "d": " ".join(str((b.get("introduction") or {}).get("description") or "").split())[:160],
+        "pr": ((b.get("rental") or {}).get("fullPrice")),
+        "pp": ((b.get("purchase") or {}).get("fullPrice")),
+        "fr": ((s.get("free") or {}).get("rental")) or 0,
         "x": bool(b.get("isOnly") or b.get("isOriginal") or b.get("isPreExclusive")),
         # 독점 종류: o isOriginal / s isOnly / p isPreExclusive(= 화면의 'RIDI ONLY') — books.json 의 xt 와 같은 뜻
         "xt": "o" if b.get("isOriginal") else ("s" if b.get("isOnly") else ("p" if b.get("isPreExclusive") else None)),

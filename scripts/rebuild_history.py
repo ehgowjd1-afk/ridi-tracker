@@ -66,7 +66,7 @@ def main():
 
     for month, mdates in months.items():
         # rating = 평균 별점(r), count = 별점 참여 수(rc). 둘 다 snapshots 에서 뽑는다.
-        hist = {"month": month, "days": [], "rank": {}, "rating": {}, "count": {}}
+        hist = {"month": month, "days": [], "rank": {}, "rating": {}, "count": {}, "ep": {}}
         for date in mdates:
             daily = store.read("daily", f"{date}.json", default=None)
             if not daily:
@@ -99,6 +99,12 @@ def main():
                     while len(series) < slot:
                         series.append(None)
                     series.append(rc)
+                ep = snap.get("ep")           # 그날 회차 수 (회차별 순위용)
+                if ep is not None:
+                    series = hist["ep"].setdefault(bid, [])
+                    while len(series) < slot:
+                        series.append(None)
+                    series.append(ep)
 
         # 길이를 days 에 맞춰 뒤를 None 패딩 (그날 순위에 없던 작품)
         n = len(hist["days"])
@@ -106,7 +112,7 @@ def main():
             for series in book.values():
                 while len(series) < n:
                     series.append(None)
-        for store_key in ("rating", "count"):
+        for store_key in ("rating", "count", "ep"):
             for series in hist[store_key].values():
                 while len(series) < n:
                     series.append(None)

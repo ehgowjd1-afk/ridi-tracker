@@ -191,7 +191,7 @@ class Store:
         self.write(meta, "_meta.json")
 
     # ------------------------------------------------------------ 추이(그래프)
-    def update_history(self, date, rank_map, rating_map, count_map=None):
+    def update_history(self, date, rank_map, rating_map, count_map=None, ep_map=None):
         """달 단위 추이 파일을 갱신한다 (그래프용).
 
         rank_map:   {book_id: {ranking_key: 순위}}
@@ -213,6 +213,7 @@ class Store:
             "month": month, "days": [], "rank": {}, "rating": {}, "count": {}
         }
         hist.setdefault("count", {})   # 예전에 만들어진 파일 호환
+        hist.setdefault("ep", {})      # 날짜별 회차 수 — '몇 화째에 몇 위'를 보기 위해 (2026-10-19)
 
         # 같은 날 두 번 돌리면 마지막 값으로 덮어쓴다
         if hist["days"] and hist["days"][-1] == date:
@@ -241,6 +242,10 @@ class Store:
         for book_id, cnt in (count_map or {}).items():
             if cnt is not None:
                 put(hist["count"].setdefault(book_id, []), cnt)
+
+        for book_id, ep in (ep_map or {}).items():
+            if ep is not None:
+                put(hist["ep"].setdefault(book_id, []), ep)
 
         self.write(hist, "history", f"{month}.json")
         return month
