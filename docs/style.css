@@ -398,10 +398,14 @@ svg.chart { display: block; width: 100%; min-width: 280px; height: auto; }
 .newmarks { color: var(--accent); font-size: .74rem; margin-top: 3px; white-space: normal; }
 .newdesc { color: var(--dim); font-size: .76rem; margin-top: 4px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .newprice { color: var(--accent); font-size: .74rem; margin-top: 3px; }
-/* 회차별 순위: 회차마다 공개 후 날짜별 곡선 */
+/* 회차별 순위: 회차마다 올라온 다음 날 순위를 선 하나로 */
 .chart .epline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
-.chart .epdot { fill: var(--card); stroke: var(--accent); stroke-width: 1.6; }
-.chart .eplabel { fill: var(--accent); font-weight: 700; }
+.chart .epdot { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
+.chart .epdot.top { fill: var(--accent); }
+.chart .epx { fill: var(--text); font-weight: 700; }
+/* 순위 추이 그래프 위의 회차 표시('6화') */
+.chart .epmkline { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; opacity: .55; }
+.chart .epmktx { fill: var(--accent); font-size: 9px; font-weight: 700; }
 .eptable { width: 100%; border-collapse: collapse; font-size: .76rem; margin-top: 8px; }
 .eptable th, .eptable td { padding: 3px 6px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .eptable th { color: var(--dim); font-weight: 600; }

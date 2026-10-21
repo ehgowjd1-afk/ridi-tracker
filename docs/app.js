@@ -2477,9 +2477,9 @@ function catLabelMap() {
   return _catLabels;
 }
 
-// 회차별 순위: history 의 날짜별 순위(rank)와 날짜별 회차 수(ep)를 겹쳐, 회차마다 '공개 후 며칠째 몇 위'였는지를 곡선으로 그린다.
-//   가로축 = 그 회차 수로 처음 잡힌 날(=공개 다음 날)부터 며칠째, 선 하나 = 회차 하나. 겹쳐 보면 어느 회차가 높이 올라가 오래 버텼는지 비교된다.
-//   표 = 회차별 지표(공개일·다음 날 순위·최고·사이클 평균·머문 일수). 사용자 요청 2026-10-21: 회차별 최고 순위 하나보다 날짜별 곡선이 지표 계산에 낫다.
+// 회차별 순위: 회차가 올라올 때마다의 순위를 선 하나로 잇는다 (사용자 요청 2026-10-21 — "1화 나왔을 때 순위, 6화 나왔을 때 순위를 이어서").
+//   점 = 그 회차가 올라온 다음 날(기록상 회차 수가 처음 늘어난 날)의 순위, 가로축 = 회차(아래에 날짜). 1위가 위.
+//   표 = 회차별 지표(공개일·다음 날 순위·그 회차 동안 최고·평균·순위권에 머문 날).
 function epRankCard(id, months, ctxKey) {
   var keys = {};
   months.forEach(function (h) { var r = h.rank && h.rank[id]; if (r) Object.keys(r).forEach(function (k) { keys[k] = 1; }); });
@@ -2494,24 +2494,14 @@ function epRankCard(id, months, ctxKey) {
       var r = rs[i], e = eps[i];
       if (r == null || e == null) return;
       var s = byEp[e];
-      if (!s) { s = byEp[e] = { ep: e, firstDay: d, pts: [] }; order.push(e); }
-      s.pts.push({ d: d, r: r });
+      if (!s) { s = byEp[e] = { ep: e, firstDay: d, first: r, best: r, bestDay: d, sum: 0, days: 0 }; order.push(e); }
+      if (d < s.firstDay) { s.firstDay = d; s.first = r; }
+      if (r < s.best) { s.best = r; s.bestDay = d; }
+      s.sum += r; s.days++;
     });
   });
   order.sort(function (a, b) { return a - b; });
-  var rows = order.map(function (e) {
-    var s = byEp[e];
-    s.pts.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
-    // 며칠째 = 첫 기록일(공개 다음 날)부터 센 날짜 차이 + 1. 중간에 순위권 밖이면 그날은 비어 있다.
-    s.pts.forEach(function (p) { p.day = dayGap(p.d, s.firstDay) + 1; });
-    s.first = s.pts[0].r;
-    s.best = Math.min.apply(null, s.pts.map(function (p) { return p.r; }));
-    s.bestDay = s.pts.filter(function (p) { return p.r === s.best; })[0].d;
-    s.avg = Math.round(s.pts.reduce(function (a, p) { return a + p.r; }, 0) / s.pts.length * 10) / 10;
-    s.days = s.pts.length;
-    s.span = s.pts[s.pts.length - 1].day;
-    return s;
-  });
+  var rows = order.map(function (e) { var s = byEp[e]; s.avg = Math.round(s.sum / s.days * 10) / 10; return s; });
   if (rows.length < 2) return null;
   var rk = D.latest.rankings[key] || {};
   var unit = (D.latest.books[id] && D.latest.books[id].u) || "화";
@@ -2519,42 +2509,40 @@ function epRankCard(id, months, ctxKey) {
   var card = el("div", "card");
   card.appendChild(el("h3", "", "회차별 순위 — " + (rk.name || key) + " " + (PL[rk.period] || rk.period || "")));
 
-  // 곡선: 최근 8개 회차. 최신 회차가 진하고 오래된 회차일수록 옅다.
-  var show = rows.slice(-8);
-  var maxDay = Math.min(14, Math.max.apply(null, show.map(function (s) { return s.span; }).concat([3])));
-  var maxRank = Math.max.apply(null, show.map(function (s) { return Math.max.apply(null, s.pts.map(function (p) { return p.r; })); }).concat([10]));
-  var W = 640, H = 210, L = 34, R = 10, T = 14, B = 30;
+  // 선 그래프: 최근 30개 회차, 회차마다 '올라온 다음 날 순위' 한 점
+  var show = rows.slice(-30);
+  var W = 640, H = 200, L = 34, R = 10, T = 14, B = 34;
+  var maxRank = Math.max.apply(null, show.map(function (s) { return s.first; }).concat([10]));
   var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "chart"); svg.style.height = "210px";
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "chart"); svg.style.height = "200px";
   var mk = function (tag, attrs, text) { var e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
-  var X = function (day) { return L + ((day - 1) / (maxDay - 1 || 1)) * (W - L - R); };
+  var step = show.length > 1 ? (W - L - R) / (show.length - 1) : 0;
+  var X = function (i) { return L + i * step; };
   var Y = function (r) { return T + ((r - 1) / (maxRank - 1 || 1)) * (H - T - B); };   // 1위가 꼭대기
   [1, Math.round(maxRank / 2), maxRank].forEach(function (r) {
     svg.appendChild(mk("line", { x1: L, x2: W - R, y1: Y(r), y2: Y(r), class: "grid" }));
     svg.appendChild(mk("text", { x: L - 4, y: Y(r) + 4, "text-anchor": "end", class: "ax" }, r + "위"));
   });
-  for (var dd = 1; dd <= maxDay; dd++) svg.appendChild(mk("text", { x: X(dd), y: H - B + 13, "text-anchor": "middle", class: "ax" }, dd + "일째"));
+  svg.appendChild(mk("polyline", { points: show.map(function (s, i) { return X(i) + "," + Y(s.first); }).join(" "), class: "epline" }));
+  var every = Math.ceil(show.length / 10);
   show.forEach(function (s, i) {
-    var op = 0.3 + 0.7 * (i + 1) / show.length;
-    var pts = s.pts.filter(function (p) { return p.day <= maxDay; });
-    var g = mk("g", { class: "epcurve", style: "opacity:" + op.toFixed(2) });
-    g.appendChild(mk("polyline", { points: pts.map(function (p) { return X(p.day) + "," + Y(p.r); }).join(" "), class: "epline" }));
-    pts.forEach(function (p) {
-      var c = mk("circle", { cx: X(p.day), cy: Y(p.r), r: 2.8, class: "epdot" });
-      c.appendChild(mk("title", {}, s.ep + unit + " 공개 " + p.day + "일째 (" + p.d.slice(5) + "): " + p.r + "위"));
-      g.appendChild(c);
-    });
-    var last = pts[pts.length - 1];
-    g.appendChild(mk("text", { x: Math.min(W - R - 2, X(last.day) + 4), y: Y(last.r) + 4, class: "ax eplabel" }, s.ep + unit));
+    var g = mk("g", {});
+    g.appendChild(mk("circle", { cx: X(i), cy: Y(s.first), r: 3.2, class: "epdot" + (s.first <= 10 ? " top" : "") }));
+    if (i % every === 0 || i === show.length - 1) {
+      g.appendChild(mk("text", { x: X(i), y: H - B + 12, "text-anchor": "middle", class: "ax epx" }, s.ep + unit));
+      g.appendChild(mk("text", { x: X(i), y: H - B + 23, "text-anchor": "middle", class: "ax" }, s.firstDay.slice(5).replace("-", "/")));
+    }
+    g.appendChild(mk("title", {}, s.ep + unit + " 올라온 다음 날(" + s.firstDay.slice(5) + ") " + s.first + "위"
+      + (s.best < s.first ? " · 그 회차 동안 최고 " + s.best + "위(" + s.bestDay.slice(5) + ")" : "") + " · 평균 " + s.avg + "위 · " + s.days + "일"));
     svg.appendChild(g);
   });
   var w = el("div", "chartwrap"); w.appendChild(svg); card.appendChild(w);
 
-  // 회차별 지표 표 (최근 것이 위). 공개일 = 리디가 회차를 연 날(기록은 다음 날 아침이라 첫 기록일 하루 전으로 표시)
+  // 회차별 지표 표 (최근 것이 위). 공개일은 첫 기록일 하루 전(회차는 저녁에 열리고 기록은 다음 날 아침)
   var tbl = el("table", "eptable");
-  var thead = el("thead"); var trh = el("tr");
-  ["회차", "공개일", "다음 날", "최고", "평균", "머문 날"].forEach(function (t) { trh.appendChild(el("th", "", t)); });
-  thead.appendChild(trh); tbl.appendChild(thead);
+  var trh = el("tr");
+  ["회차", "공개일", "다음 날 순위", "그 회차 최고", "평균", "순위권 머문 날"].forEach(function (t) { trh.appendChild(el("th", "", t)); });
+  var thead = el("thead"); thead.appendChild(trh); tbl.appendChild(thead);
   var tb = el("tbody");
   rows.slice().reverse().slice(0, 12).forEach(function (s) {
     var tr = el("tr");
@@ -2569,8 +2557,8 @@ function epRankCard(id, months, ctxKey) {
   var best = rows.reduce(function (a, b) { return b.best < a.best ? b : a; });
   var top1 = rows.filter(function (s) { return s.best === 1; })[0], top10 = rows.filter(function (s) { return s.best <= 10; })[0];
   card.appendChild(el("p", "hint",
-    "선 하나가 회차 하나: 그 회차가 올라온 다음 날(1일째)부터 다음 회차가 오기 전까지 날짜별 순위(1위가 위). 최신 회차가 진한 선, 최근 8개 회차·14일까지만 그림. "
-    + "순위권(200위) 밖이었던 날은 비어 있어요. 최고 " + best.best + "위는 " + best.ep + unit + "째(" + best.bestDay.slice(5) + ")"
+    "점 = 그 회차가 올라온 다음 날 순위(1위가 위), 선은 회차 순서대로 이은 것. 날짜별 오르내림은 위 순위 추이 그래프에서, 회차가 올라온 날은 거기 '6" + unit + "' 표시로 보세요. "
+    + "순위권(200위) 밖이었던 날은 안 세요. 최고 " + best.best + "위는 " + best.ep + unit + "째(" + best.bestDay.slice(5) + ")"
     + (top1 ? " · 1위 첫 달성 " + top1.ep + unit : (top10 ? " · TOP10 첫 진입 " + top10.ep + unit : ""))
     + (rows.length > 12 ? " · 표는 최근 12개 회차" : "") + "."));
   return card;
@@ -2626,6 +2614,18 @@ function rankTrendCard(id, months, ctxKey, extra) {
     return PERIOD_ORDER.filter(function (p) { return byCat[cat][p]; });
   }
 
+  // 회차가 올라온 날(기록상 회차 수가 늘어난 날) — 그래프 위에 '6화'처럼 표시. 날짜별 선 하나에 회차를 얹어 보는 단순한 방식(사용자 요청 2026-10-21)
+  var epMarks = [];
+  (function () {
+    var unit = (D.latest.books[id] && D.latest.books[id].u) || "화", all = [], prev = null;
+    months.forEach(function (h) {
+      var eps = ((h.ep || {})[id]) || [];
+      (h.days || []).forEach(function (d, i) { if (eps[i] != null) all.push({ d: d, e: eps[i] }); });
+    });
+    all.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+    all.forEach(function (p) { if (prev !== null && p.e > prev) epMarks.push({ d: p.d, label: p.e + unit }); prev = p.e; });
+  })();
+
   function draw() {
     Array.prototype.forEach.call(catSeg.children, function (b) {
       b.classList.toggle("on", b.dataset.c === state.cat);
@@ -2656,7 +2656,7 @@ function rankTrendCard(id, months, ctxKey, extra) {
       var marks = mine.map(function (it) { return { d: it.d, dir: it.dir, label: shiftMarkText(it) }; });
       wrap.appendChild(lineChart(s.pts, {
         invert: true, fmt: function (v) { return v + "위"; },
-        bands: extra.bands, marks: marks
+        bands: extra.bands, marks: marks, eps: epMarks
       }));
     }
     var vals = pts.map(function (p) { return p.v; });
@@ -2859,6 +2859,17 @@ function lineChart(pts, opt) {
     g.appendChild(mk("line", { x1: X(i), y1: T, x2: X(i), y2: H - B, class: "mkline" }));
     g.appendChild(mk("text", { x: X(i), y: H - B + 10, "text-anchor": "middle", class: "mktx" }, down ? "▼" : "▲"));
     if (m.label) g.appendChild(mk("title", {}, m.label));
+    svg.appendChild(g);
+  });
+
+  // 회차가 올라온 날: 위쪽 여백에 '6화' 같은 표시 + 옅은 세로 점선 (기록은 다음 날 아침이라 공개 다음 날에 찍힌다)
+  (opt.eps || []).forEach(function (m) {
+    var i = dayIndex(m.d);
+    if (i === null || i < 0 || i > n - 1) return;
+    var g = mk("g", { class: "epmk" });
+    g.appendChild(mk("line", { x1: X(i), y1: T, x2: X(i), y2: H - B, class: "epmkline" }));
+    g.appendChild(mk("text", { x: X(i), y: T - 3, "text-anchor": "middle", class: "epmktx" }, m.label));
+    g.appendChild(mk("title", {}, m.label + " 공개 다음 날 (" + m.d + ")"));
     svg.appendChild(g);
   });
 
