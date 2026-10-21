@@ -2863,12 +2863,14 @@ function lineChart(pts, opt) {
   });
 
   // 회차가 올라온 날: 위쪽 여백에 '6화' 같은 표시 + 옅은 세로 점선 (기록은 다음 날 아침이라 공개 다음 날에 찍힌다)
-  (opt.eps || []).forEach(function (m) {
+  // 매일 올라오는 웹소설은 표시가 날마다 생겨 지저분하므로, 회차가 사흘에 한 번보다 잦으면 세로선은 빼고 글자만 띄엄띄엄 적는다
+  var epList = (opt.eps || []).filter(function (m) { var i = dayIndex(m.d); return i !== null && i >= 0 && i <= n - 1; });
+  var dense = epList.length > n / 3, everyEp = dense ? Math.ceil(epList.length / 8) : 1;
+  epList.forEach(function (m, j) {
     var i = dayIndex(m.d);
-    if (i === null || i < 0 || i > n - 1) return;
     var g = mk("g", { class: "epmk" });
-    g.appendChild(mk("line", { x1: X(i), y1: T, x2: X(i), y2: H - B, class: "epmkline" }));
-    g.appendChild(mk("text", { x: X(i), y: T - 3, "text-anchor": "middle", class: "epmktx" }, m.label));
+    if (!dense) g.appendChild(mk("line", { x1: X(i), y1: T, x2: X(i), y2: H - B, class: "epmkline" }));
+    if (j % everyEp === 0 || j === epList.length - 1) g.appendChild(mk("text", { x: X(i), y: T - 3, "text-anchor": "middle", class: "epmktx" }, m.label));
     g.appendChild(mk("title", {}, m.label + " 공개 다음 날 (" + m.d + ")"));
     svg.appendChild(g);
   });
