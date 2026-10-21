@@ -2518,29 +2518,30 @@ function epRankCard(id, months, ctxKey) {
   var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("class", "chart"); svg.style.height = "190px";
   var mk = function (tag, attrs, text) { var e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
-  var maxRank = Math.max.apply(null, show.map(function (s) { return s.first; }).concat([20]));
-  var step = (W - L - R) / show.length, bw = Math.max(3, step * 0.62);
+  // 꺾은선: 회차마다 그 회차에서 찍은 최고 순위 하나 (사용자 선택 2026-10-21 — 다음 날 순위와 84%는 같다). 점에 올리면 다음 날 순위·날짜.
+  var maxRank = Math.max.apply(null, show.map(function (s) { return s.best; }).concat([20]));
+  var step = show.length > 1 ? (W - L - R) / (show.length - 1) : 0;
+  var X = function (i) { return L + i * step; };
   var Y = function (r) { return T + ((r - 1) / (maxRank - 1 || 1)) * (H - T - B); };   // 1위가 꼭대기
   [1, Math.round(maxRank / 2), maxRank].forEach(function (r) {
     svg.appendChild(mk("line", { x1: L, x2: W - R, y1: Y(r), y2: Y(r), class: "grid" }));
     svg.appendChild(mk("text", { x: L - 4, y: Y(r) + 4, "text-anchor": "end", class: "ax" }, r + "위"));
   });
+  svg.appendChild(mk("polyline", { points: show.map(function (s, i) { return X(i) + "," + Y(s.best); }).join(" "), class: "epline" }));
   show.forEach(function (s, i) {
-    var x = L + i * step + (step - bw) / 2;
     var g = mk("g", {});
-    // 막대 = 공개 다음 날 순위(막대가 높을수록 순위가 높음). 그 회차 동안 더 올랐으면 가는 선으로 최고 순위 표시
-    g.appendChild(mk("rect", { x: x, y: Y(s.first), width: bw, height: Math.max(1, H - B - Y(s.first)), class: "epbar" + (s.first <= 10 ? " top" : "") }));
-    if (s.best < s.first) g.appendChild(mk("line", { x1: x, x2: x + bw, y1: Y(s.best), y2: Y(s.best), class: "epbest" }));
+    g.appendChild(mk("circle", { cx: X(i), cy: Y(s.best), r: 3.2, class: "epdot" + (s.best <= 10 ? " top" : "") }));
     if (show.length <= 20 || i % Math.ceil(show.length / 12) === 0 || i === show.length - 1)
-      g.appendChild(mk("text", { x: x + bw / 2, y: H - B + 13, "text-anchor": "middle", class: "ax" }, s.ep + unit));
-    g.appendChild(mk("title", {}, s.ep + unit + ": 공개 다음 날 " + s.first + "위 (" + s.firstDay.slice(5) + ")" + (s.best < s.first ? " · 그 회차 동안 최고 " + s.best + "위 (" + s.bestDay.slice(5) + ")" : "") + " · " + s.days + "일"));
+      g.appendChild(mk("text", { x: X(i), y: H - B + 13, "text-anchor": "middle", class: "ax" }, s.ep + unit));
+    g.appendChild(mk("title", {}, s.ep + unit + ": 최고 " + s.best + "위 (" + s.bestDay.slice(5) + ")"
+      + (s.first !== s.best ? " · 공개 다음 날은 " + s.first + "위 (" + s.firstDay.slice(5) + ")" : " · 공개 다음 날 기록") + " · 이 회차로 " + s.days + "일"));
     svg.appendChild(g);
   });
   var w = el("div", "chartwrap"); w.appendChild(svg); card.appendChild(w);
   var best = rows.reduce(function (a, b) { return b.best < a.best ? b : a; });
   var top1 = rows.filter(function (s) { return s.best === 1; })[0], top10 = rows.filter(function (s) { return s.best <= 10; })[0];
   card.appendChild(el("p", "hint",
-    "막대 = 그 회차가 올라온 다음 날 순위(1위가 꼭대기), 가는 선 = 그 회차 동안 최고 순위. "
+    "회차마다 그 회차에서 찍은 최고 순위(1위가 위). 점에 올리면 날짜와 공개 다음 날 순위. "
     + "최고 " + best.best + "위는 " + best.ep + unit + "째(" + best.bestDay.slice(5) + ")"
     + (top1 ? " · 1위 첫 달성 " + top1.ep + unit : (top10 ? " · TOP10 첫 진입 " + top10.ep + unit : ""))
     + (rows.length > show.length ? " · 최근 " + show.length + "개 회차만 표시" : "") + "."));
