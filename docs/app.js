@@ -343,7 +343,7 @@ function newRow(r, g, today) {
 // ────────────────────────────────────────── 실시간 랭킹
 // data/live/index.json: {dates:[…], updated}
 // data/live/<날짜>.json: {date, samples:[{at:"HH:MM", ranks:{묶음키:[id…50]}}], books:{id:{t,a}}}
-var LIVE = { index: null, date: null, day: null, group: null, i: 0, hideAdult: false, cache: {} };
+var LIVE = { index: null, date: null, day: null, group: null, i: -1, hideAdult: false, cache: {} };   // i = -1 이면 그날 마지막 시각부터
 
 function liveGroupName(key) {
   var ks = Object.keys(D.latest.rankings || {}).filter(function (k) { return k.indexOf(key + "-") === 0; });
