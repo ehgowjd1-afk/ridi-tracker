@@ -1,13 +1,19 @@
-name: 리디 실시간 랭킹 (매시)
+name: 리디 실시간 랭킹 (10분마다)
 
-# 장르별 '실시간 랭킹' 50위를 한 시간에 한 번 모읍니다 (요청 13번, 1분). docs/data/live/<날짜>.json
+# 장르별 '실시간 랭킹' 50위를 10분마다 모읍니다 (요청 13번/회). docs/data/live/<날짜>.json
+#
+# ▶ 왜 긴 작업 하나가 계속 이어 달리나: GitHub 예약 실행(cron)은 바쁜 저장소에서 자주 건너뛴다.
+#   매시 1번으로 걸어 둔 2026-10-18~11-09 실측: 하루 24번이 아니라 3~5번만 돌았다.
+#   그래서 한 작업이 5시간 40분 동안 10분마다 받고(30분마다 저장), 끝날 때 자기 자신을 다시 띄운다.
+#   cron 은 6시간에 한 번, 이어 달리기가 끊겼을 때 다시 시작하는 예비용이다(겹치면 concurrency 로 줄 섬).
 on:
   schedule:
-    - cron: "20 * * * *"
+    - cron: "20 */6 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: live-rank
@@ -16,26 +22,42 @@ concurrency:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 358
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: 실시간 랭킹 받기
-        run: python scripts/live_rank.py
-      - name: 결과 저장(커밋)
-        if: always()
+
+      - name: 10분마다 받기 (30분마다 저장, 약 5시간 40분)
         run: |
           git config user.name "ehgowjd1-afk"
           git config user.email "ehgowjd1@gmail.com"
-          git add docs/data/live
-          if git diff --staged --quiet; then echo "바뀐 내용이 없어 커밋하지 않습니다."; exit 0; fi
-          git commit -q -m "실시간 랭킹: $(TZ=Asia/Seoul date '+%m-%d %H시')"
-          for i in 1 2 3 4 5; do
-            if git push; then echo "저장 완료"; exit 0; fi
-            echo "다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
-            git fetch origin main
-            git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || exit 1
+          save() {
+            git add docs/data/live
+            if git diff --staged --quiet; then return 0; fi
+            git commit -q -m "실시간 랭킹: $(TZ=Asia/Seoul date '+%m-%d %H:%M')"
+            for i in 1 2 3 4 5; do
+              if git push -q; then echo "  저장 완료 $(TZ=Asia/Seoul date '+%H:%M')"; return 0; fi
+              echo "  다른 수집과 겹쳤습니다. 합치고 다시 시도 ($i/5)"
+              git fetch -q origin main
+              git merge -X ours origin/main -m "동시에 돈 수집 결과 합치기" || { git merge --abort; sleep 10; }
+            done
+            echo "  저장 실패 (다음 번에 다시)"
+          }
+          END=$((SECONDS + 340*60))
+          n=0
+          while [ $SECONDS -lt $END ]; do
+            python scripts/live_rank.py || echo "  이번 회차 실패 — 다음 번에"
+            n=$((n+1))
+            if [ $((n % 3)) -eq 0 ]; then save; fi
+            # 다음 10분 경계까지 기다린다 (리디는 5분 단위로 바꾸므로 10분이면 두 번에 한 번 잡힘)
+            sleep $(( 600 - ($(date +%s) % 600) + 40 ))
           done
-          echo "저장 실패"; exit 1
+          save
+
+      - name: 다음 회차 이어 달리기
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run live-rank.yml --repo "$GITHUB_REPOSITORY" || echo "다음 회차를 못 띄움 — 6시간 예약이 대신 시작함"
