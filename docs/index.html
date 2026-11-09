@@ -7,7 +7,7 @@
 <title>리디 트래커</title>
 <!-- ?v= 뒤 숫자는 파일을 고칠 때마다 올립니다.
      이렇게 해야 브라우저가 낡은 파일을 계속 쓰지 않고 새 파일을 받아옵니다. -->
-<link rel="stylesheet" href="style.css?v=58">
+<link rel="stylesheet" href="style.css?v=59">
 </head>
 <body>
 
@@ -23,6 +23,7 @@
        세 가지는 리디에서 순위를 매기는 기준 자체가 다르므로 섞지 않습니다. -->
   <nav class="wrap tabs" id="mainTabs">
     <button data-view="new">신작</button>
+    <button data-view="live">실시간</button>
     <button data-view="move">변동</button>
     <button data-view="keyword">키워드</button>
     <button data-view="combo">조합</button>
@@ -74,6 +75,29 @@
     <p class="hint">판매순은 리디가 신작(1화 등록 60일 안)을 판매 점수로 줄 세운 것으로, 주간 베스트와 가장 비슷하게 움직입니다(상관 0.84~0.98).
       회차가 올라온 다음 날 순위가 가장 높고 그 뒤 며칠간 내려가는 톱니가 있으니, 같은 날 비교보다 '회차 공개 다음 날 순위'끼리 비교하는 게 정확합니다.
       ▲▼는 어제 판매순 대비 변동, 관심은 리디에서 작품을 찜한 사람 수(7일 증가분 포함)입니다.</p>
+  </section>
+
+  <!-- ── 실시간 ───────────────────────────────────────── -->
+  <!-- 리디 장르 페이지의 '실시간 랭킹' 50위를 10분마다 모은 것 (data/live/<날짜>.json). 날짜를 고르면 그날 시각별로 넘겨 볼 수 있다 -->
+  <section id="view-live" class="view hidden">
+    <div class="controls">
+      <div class="seg" id="liveGroupPick"></div>
+      <div class="row">
+        <label class="field narrow"><span>날짜</span><input type="date" id="liveDate" aria-label="날짜"></label>
+        <div class="livetime">
+          <button type="button" id="livePrev" aria-label="이전 시각">◀</button>
+          <input type="range" id="liveSlider" min="0" max="0" value="0" aria-label="시각">
+          <button type="button" id="liveNext" aria-label="다음 시각">▶</button>
+          <b id="liveAt">--:--</b>
+        </div>
+        <label class="chk"><input type="checkbox" id="liveHideAdult"> 성인 작품 숨기기</label>
+      </div>
+    </div>
+    <div id="liveTop" class="livetop"></div>
+    <div id="liveHead" class="listhead"></div>
+    <ol id="liveList" class="booklist"></ol>
+    <p class="hint">리디 장르 페이지의 '실시간 랭킹'(지금 읽히는 순위)입니다. 리디는 5분마다 통째로 갱신하고, 우리는 10분마다 받아 둡니다(2026-11-10부터, 그 전엔 하루 4~6번).
+      ▲▼는 직전 시각 대비, NEW는 직전 시각 50위 밖에서 들어온 작품. 베스트셀러(판매)와 달리 '지금 읽는 사람'을 반영해 회차가 올라온 직후·밤 시간대에 크게 움직입니다.</p>
   </section>
 
   <!-- ── 변동 ─────────────────────────────────────────── -->
@@ -214,6 +238,6 @@
 <script src="xlsx.js?v=39"></script>
 <!-- 리뷰 요소별 분석 엔진 — GitHub Actions(scripts/reviews_full.js)와 같은 파일을 쓴다 -->
 <script src="rabsa.js?v=45"></script>
-<script src="app.js?v=66"></script>
+<script src="app.js?v=67"></script>
 </body>
 </html>

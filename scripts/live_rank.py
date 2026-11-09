@@ -60,6 +60,13 @@ def main():
         print(f"  {name}: {len(ids)}위")
     day["samples"].append(sample)
     store.write(day, "live", f"{date}.json")
+    # 날짜 목록(화면의 달력이 어느 날에 기록이 있는지 알게)
+    idx = store.read("live", "index.json", default=None) or {"dates": []}
+    if date not in idx["dates"]:
+        idx["dates"].append(date)
+        idx["dates"].sort()
+    idx["updated"] = f"{date} {at}"
+    store.write(idx, "live", "index.json")
     print(f"저장: 오늘 {len(day['samples'])}번째 표본")
     return 0
 

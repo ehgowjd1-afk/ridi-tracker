@@ -114,6 +114,7 @@ function boot() {
       setupEvent();
       setupSearch();
       setupNew();
+      setupLive();
       setupTheme();
       render();
     })
@@ -178,11 +179,12 @@ function render() {
   });
   var rank = isRankView(UI.view);
   $("#view-rank").classList.toggle("hidden", !rank);
-  ["new", "move", "keyword", "combo", "event", "search"].forEach(function (v) {
+  ["new", "live", "move", "keyword", "combo", "event", "search"].forEach(function (v) {
     $("#view-" + v).classList.toggle("hidden", v !== UI.view);
   });
   if (rank) drawRank();
   if (UI.view === "new") drawNew();
+  if (UI.view === "live") drawLive();
   if (UI.view === "move") drawMove();
   if (UI.view === "keyword") drawKeyword();
   if (UI.view === "combo") drawCombo();
@@ -336,6 +338,152 @@ function newRow(r, g, today) {
   li.addEventListener("click", open);
   li.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
   return li;
+}
+
+// ────────────────────────────────────────── 실시간 랭킹
+// data/live/index.json: {dates:[…], updated}
+// data/live/<날짜>.json: {date, samples:[{at:"HH:MM", ranks:{묶음키:[id…50]}}], books:{id:{t,a}}}
+var LIVE = { index: null, date: null, day: null, group: null, i: 0, hideAdult: false, cache: {} };
+
+function liveGroupName(key) {
+  var ks = Object.keys(D.latest.rankings || {}).filter(function (k) { return k.indexOf(key + "-") === 0; });
+  return ks.length ? D.latest.rankings[ks[0]].name : key;
+}
+function liveGroupSection(key) {
+  var ks = Object.keys(D.latest.rankings || {}).filter(function (k) { return k.indexOf(key + "-") === 0; });
+  return ks.length ? D.latest.rankings[ks[0]].section : "";
+}
+
+function setupLive() {
+  $("#liveGroupPick").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-group]");
+    if (!b) return;
+    LIVE.group = b.dataset.group;
+    drawLive();
+  });
+  $("#liveDate").addEventListener("change", function () { LIVE.date = this.value; LIVE.day = null; LIVE.i = -1; drawLive(); });
+  $("#liveSlider").addEventListener("input", function () { LIVE.i = Number(this.value); drawLive(); });
+  $("#livePrev").addEventListener("click", function () { if (LIVE.i > 0) { LIVE.i--; drawLive(); } });
+  $("#liveNext").addEventListener("click", function () { if (LIVE.day && LIVE.i < LIVE.day.samples.length - 1) { LIVE.i++; drawLive(); } });
+  $("#liveHideAdult").addEventListener("change", function () { LIVE.hideAdult = this.checked; drawLive(); });
+}
+
+function drawLive() {
+  var head = $("#liveHead"), list = $("#liveList"), top = $("#liveTop");
+  if (!LIVE.index) {
+    head.textContent = "불러오는 중…";
+    softJSON("data/live/index.json").then(function (j) {
+      LIVE.index = (j && j.dates && j.dates.length) ? j : { dates: [] };
+      var di = $("#liveDate");
+      if (LIVE.index.dates.length) {
+        di.min = LIVE.index.dates[0];
+        di.max = LIVE.index.dates[LIVE.index.dates.length - 1];
+        LIVE.date = LIVE.date || di.max;
+        di.value = LIVE.date;
+      }
+      drawLive();
+    });
+    return;
+  }
+  if (!LIVE.index.dates.length) { head.textContent = "실시간 랭킹 기록이 아직 없습니다."; return; }
+  if (!LIVE.day || LIVE.day.date !== LIVE.date) {
+    if (LIVE.cache[LIVE.date]) { LIVE.day = LIVE.cache[LIVE.date]; }
+    else {
+      head.textContent = LIVE.date + " 기록을 불러오는 중…";
+      list.innerHTML = ""; top.innerHTML = "";
+      softJSON("data/live/" + LIVE.date + ".json").then(function (j) {
+        LIVE.cache[LIVE.date] = j || { date: LIVE.date, samples: [], books: {} };
+        LIVE.day = LIVE.cache[LIVE.date];
+        if (LIVE.i < 0) LIVE.i = LIVE.day.samples.length - 1;
+        drawLive();
+      });
+      return;
+    }
+  }
+  var day = LIVE.day, S = day.samples || [];
+  if (LIVE.i < 0 || LIVE.i >= S.length) LIVE.i = S.length - 1;
+  // 묶음 단추 (처음 한 번): 그날 기록에 있는 묶음을 웹소설→웹툰→E북 순으로
+  var pick = $("#liveGroupPick");
+  if (!pick.children.length && S.length) {
+    var order = { webnovel: 0, webtoon: 1, ebook: 2 };
+    var keys = Object.keys(S[0].ranks).sort(function (a, b) {
+      return (order[liveGroupSection(a)] - order[liveGroupSection(b)]) || ((/^9990/.test(a) ? 0 : 1) - (/^9990/.test(b) ? 0 : 1)) || a.localeCompare(b);
+    });
+    keys.forEach(function (k) { var b = el("button", "", liveGroupName(k)); b.dataset.group = k; pick.appendChild(b); });
+    if (!LIVE.group) LIVE.group = keys.filter(function (k) { return liveGroupSection(k) === UI.section; })[0] || keys[0];
+  }
+  Array.prototype.forEach.call(pick.children, function (b) { b.classList.toggle("on", b.dataset.group === LIVE.group); });
+
+  var sl = $("#liveSlider");
+  sl.max = Math.max(0, S.length - 1); sl.value = Math.max(0, LIVE.i);
+  $("#liveAt").textContent = S.length ? S[LIVE.i].at : "--:--";
+  list.innerHTML = ""; top.innerHTML = "";
+  if (!S.length) { head.textContent = LIVE.date + "에는 기록이 없습니다."; return; }
+
+  var key = LIVE.group, cur = S[LIVE.i].ranks[key] || [], prev = LIVE.i > 0 ? (S[LIVE.i - 1].ranks[key] || []) : null;
+  var books = day.books || {};
+  head.innerHTML = "<b>" + liveGroupName(key) + "</b> 실시간 랭킹 · " + LIVE.date + " " + S[LIVE.i].at
+    + " · 그날 " + S.length + "개 시각 기록" + (prev ? " · 직전 " + S[LIVE.i - 1].at + " 대비" : "");
+
+  // 시간대별 1위: 연속 구간으로 묶어 "00:00~02:10 제목" 식
+  var runs = [];
+  S.forEach(function (s) {
+    var id = (s.ranks[key] || [])[0];
+    if (!id) return;
+    var last = runs[runs.length - 1];
+    if (last && last.id === id) last.to = s.at; else runs.push({ id: id, from: s.at, to: s.at });
+  });
+  if (runs.length) {
+    var tl = el("div", "livetl");
+    tl.appendChild(el("b", "", "시간대별 1위"));
+    runs.forEach(function (r) {
+      var sp = el("span", "chip" + ((cur[0] === r.id) ? " on" : ""), (r.from === r.to ? r.from : r.from + "~" + r.to) + " " + ((books[r.id] || {}).t || r.id));
+      sp.addEventListener("click", function () { var k = S.findIndex(function (s) { return s.at === r.from; }); if (k >= 0) { LIVE.i = k; drawLive(); } });
+      tl.appendChild(sp);
+    });
+    top.appendChild(tl);
+  }
+
+  var frag = document.createDocumentFragment();
+  var shown = 0;
+  cur.forEach(function (id, i) {
+    var b = books[id] || {}, cat = (D.latest.books && D.latest.books[id]) || (D.catalog && D.catalog[id]) || {};
+    if (LIVE.hideAdult && cat.ad) return;
+    var li = el("li", "bookrow"); li.tabIndex = 0;
+    var rk = el("div", "rk"); rk.appendChild(el("div", "n", i + 1));
+    if (prev) {
+      var pi = prev.indexOf(id);
+      var d = el("div", "d");
+      if (pi < 0) { d.textContent = "NEW"; d.className = "d new"; }
+      else if (pi === i) { d.textContent = "–"; d.className = "d same"; }
+      else { var m = pi - i; d.textContent = (m > 0 ? "▲" : "▼") + Math.abs(m); d.className = "d " + (m > 0 ? "up" : "down"); }
+      rk.appendChild(d);
+    }
+    li.appendChild(rk);
+    var img = el("img", "cover"); img.loading = "lazy"; img.src = coverUrl(id, "small"); img.alt = "";
+    img.onerror = function () { this.style.visibility = "hidden"; };
+    li.appendChild(img);
+    var info = el("div", "info");
+    info.appendChild(el("div", "tt", b.t || cat.t || id));
+    info.appendChild(el("div", "au", (b.a || cat.a || []).join(", ")));
+    var sub = el("div", "sub");
+    // 그날 이 작품의 실시간 순위 범위 (몇 번 1위였나 포함)
+    var mine = S.map(function (s) { var r = (s.ranks[key] || []).indexOf(id); return r < 0 ? null : r + 1; }).filter(function (r) { return r !== null; });
+    if (mine.length) {
+      var best = Math.min.apply(null, mine), n1 = mine.filter(function (r) { return r === 1; }).length;
+      sub.appendChild(el("span", "badge", "오늘 최고 " + best + "위 · " + mine.length + "/" + S.length + "번 50위 안" + (n1 ? " · 1위 " + n1 + "번" : "")));
+    }
+    if (cat.ad) sub.appendChild(el("span", "badge ad", "19+"));
+    info.appendChild(sub);
+    li.appendChild(info);
+    var inSite = !!((D.latest.books && D.latest.books[id]) || (D.catalog && D.catalog[id]));
+    var open = function () { if (inSite) openBook(id, null); else window.open(bookUrl(id), "_blank", "noopener"); };
+    li.addEventListener("click", open);
+    li.addEventListener("keydown", function (e) { if (e.key === "Enter") open(); });
+    frag.appendChild(li); shown++;
+  });
+  list.appendChild(frag);
+  if (!shown) list.appendChild(el("li", "empty", "표시할 작품이 없습니다."));
 }
 
 function setupTheme() {
